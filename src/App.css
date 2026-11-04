@@ -270,6 +270,15 @@ kbd {
 .dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
+/* Statut agent (Settings → Agents, cf. coucou statusDot) : pastille 8px. */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: baseline;
+}
 
 @keyframes dot-bounce {
   0%,
@@ -568,13 +577,15 @@ kbd {
   max-width: 880px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
+/* Cartes coucou : radius 16px, gap 18px (settings.css) — whisp garde ses
+   variables mais aligne la géométrie (charte coucou GAGNE). */
 .panel {
   background: var(--bg-card);
   border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
+  border-radius: 16px;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -871,9 +882,62 @@ div.check-row {
   transition: transform 150ms ease;
 }
 
-.switch.on .switch-knob {
-  transform: translateX(18px);
+/* Switch whisp 40x22px AA conservé (coucou = 36x20px — écart signalé). */
+/* Raccourcis (copié de coucou settings.css : .subhead/.shortcut-list/.keycap/.tag). */
+.subhead {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 4px;
 }
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.row.shortcut {
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+.shortcut-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.keycap {
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  min-width: 118px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-align: center;
+  flex: 0 0 auto;
+}
+.keycap.static {
+  background: transparent;
+  color: var(--muted);
+}
+/* Carte popup : opacité réglable (Apparence). */
+.recorder-card {
+  opacity: var(--card-alpha, 1);
+}
+input[type="range"] {
+  accent-color: var(--text);
+  width: 140px;
+}
+
 
 /* Light theme : piste éteinte plus contrastée (AA sur fond clair). */
 :root[data-theme="light"] .switch {

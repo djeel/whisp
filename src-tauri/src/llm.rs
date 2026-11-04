@@ -281,34 +281,31 @@ pub fn chat(provider: &str, messages: &[ChatMessage]) -> Result<String, String> 
                 .trim()
                 .to_string())
         }
-        "openai" => {
-            let key = keyring_get("openai").ok_or_else(|| "openai key not configured".to_string())?;
-            let turns: Vec<serde_json::Value> = messages
-                .iter()
-                .map(|m| serde_json::json!({ "role": chat_role(&m.role), "content": m.content }))
-                .collect();
-            if turns.is_empty() {
-                return Err("empty conversation".to_string());
-            }
-            let resp: serde_json::Value = client
-                .post("https://api.openai.com/v1/chat/completions")
-                .header("Authorization", format!("Bearer {key}"))
-                .json(&serde_json::json!({ "model": "gpt-4o-mini", "messages": turns }))
-                .send()
-                .map_err(|e| format!("openai request: {e}"))?
-                .error_for_status()
-                .map_err(|e| format!("openai status: {e}"))?
-                .json()
-                .map_err(|e| format!("openai decode: {e}"))?;
-            Ok(resp
-                .pointer("/choices/0/message/content")
-                .and_then(|t| t.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_string())
+        "openai" => openai_chat(&client, "https://api.openai.com/v1", "openai", "gpt-4o-mini", messages),
+        "google" | "openrouter" | "deepseek" | "qwen" | "moonshot" | "custom" => {
+            // OpenAI-compatible : base URL + modèle depuis la config, clé keyring du provider.
+            let (base, fallback) = match provider {
+                "google" => ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.0-flash"),
+                "openrouter" => ("https://openrouter.ai/api/v1", "openrouter/auto"),
+                "deepseek" => ("https://api.deepseek.com/v1", "deepseek-chat"),
+                "qwen" => ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+                "moonshot" => ("https://api.moonshot.ai/v1", "moonshot-v1-8k"),
+                _ => ("https://api.openai.com/v1", "gpt-4o-mini"),
+            };
+            let cfg = crate::config::load();
+            let base = cfg.chat_base_url.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| base.to_string());
+            // Modèle : config si le provider actif correspond, sinon fallback.
+            let active_is_provider = cfg.chat_provider.as_deref() == Some(provider);
+            let model = if active_is_provider {
+                cfg.chat_model.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| fallback.to_string())
+            } else {
+                fallback.to_string()
+            };
+            openai_chat(&client, &base, provider, &model, messages)
         }
         _ => {
             // Default: local Ollama `/api/chat` (offline, no key).
+            let url = format!("{}/api/chat", crate::config::ollama_url().trim_end_matches('/'));
             let turns: Vec<serde_json::Value> = messages
                 .iter()
                 .map(|m| serde_json::json!({ "role": chat_role(&m.role), "content": m.content }))
@@ -317,9 +314,9 @@ pub fn chat(provider: &str, messages: &[ChatMessage]) -> Result<String, String> 
                 return Err("empty conversation".to_string());
             }
             let resp: serde_json::Value = client
-                .post("http://localhost:11434/api/chat")
+                .post(url)
                 .json(&serde_json::json!({
-                    "model": "qwen2.5:3b",
+                    "model": crate::config::ollama_model(),
                     "messages": turns,
                     "stream": false,
                 }))
@@ -337,6 +334,41 @@ pub fn chat(provider: &str, messages: &[ChatMessage]) -> Result<String, String> 
                 .to_string())
         }
     }
+}
+
+/// Chat OpenAI-compatible générique (OpenAI, Gemini/DeepSeek/Qwen/Moonshot via base URL, custom).
+fn openai_chat(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    provider: &str,
+    model: &str,
+    messages: &[ChatMessage],
+) -> Result<String, String> {
+    let key = keyring_get(provider).ok_or_else(|| format!("{provider} key not configured"))?;
+    let turns: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|m| serde_json::json!({ "role": chat_role(&m.role), "content": m.content }))
+        .collect();
+    if turns.is_empty() {
+        return Err("empty conversation".to_string());
+    }
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let resp: serde_json::Value = client
+        .post(url)
+        .header("Authorization", format!("Bearer {key}"))
+        .json(&serde_json::json!({ "model": model, "messages": turns }))
+        .send()
+        .map_err(|e| format!("{provider} request: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("{provider} status: {e}"))?
+        .json()
+        .map_err(|e| format!("{provider} decode: {e}"))?;
+    Ok(resp
+        .pointer("/choices/0/message/content")
+        .and_then(|t| t.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string())
 }
 
 /// Tauri command: blocking chat completion for the Chat tab.

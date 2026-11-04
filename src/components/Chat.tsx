@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-export type ChatProvider = "ollama" | "anthropic" | "openai";
+export type ChatProvider =
+  | "ollama"
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "openrouter"
+  | "deepseek"
+  | "qwen"
+  | "moonshot";
 
 interface ChatMsg {
   role: "user" | "assistant";
@@ -12,6 +20,11 @@ const PROVIDERS: Array<{ id: ChatProvider; label: string }> = [
   { id: "ollama", label: "Ollama (local)" },
   { id: "anthropic", label: "Anthropic" },
   { id: "openai", label: "OpenAI" },
+  { id: "google", label: "Gemini (OpenAI-compatible)" },
+  { id: "openrouter", label: "OpenRouter" },
+  { id: "deepseek", label: "DeepSeek" },
+  { id: "qwen", label: "Qwen" },
+  { id: "moonshot", label: "Moonshot" },
 ];
 
 function loadHistory(): ChatMsg[] {
@@ -39,7 +52,11 @@ export default function Chat() {
   const [provider, setProvider] = useState<ChatProvider>(() => {
     try {
       const v = localStorage.getItem("whisp:chat-provider");
-      return v === "anthropic" || v === "openai" ? v : "ollama";
+      return (
+        ["ollama", "anthropic", "openai", "google", "openrouter", "deepseek", "qwen", "moonshot"] as ChatProvider[]
+      ).includes(v as ChatProvider)
+        ? (v as ChatProvider)
+        : "ollama";
     } catch {
       return "ollama";
     }

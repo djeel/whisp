@@ -7,6 +7,7 @@
 //!   (f32 0..1).
 
 mod agent_hook;
+mod appearance;
 mod audio;
 mod config;
 mod history;
@@ -14,7 +15,10 @@ mod hotkeys;
 mod island;
 mod llm;
 mod modes;
+mod shortcuts;
 mod stt;
+mod updates;
+mod voice;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -367,7 +371,16 @@ async fn finish_from_handle(
                     if let Some(state) = app.try_state::<AppState>() {
                         *state.sta_last.lock().expect("sta lock poisoned") = Some(prompt);
                     }
+                    // La pill STA apparaît dans l'island (working).
+                    island::upsert_sta_pill(
+                        &app,
+                        format!("sta-{}", config::sta_agent_id()),
+                        config::sta_agent_id(),
+                        text_final.chars().take(80).collect(),
+                    );
                 }
+                // Réponse vocale STA (Fish TTS) quand `sta_voice` est activé.
+                voice::maybe_speak_sta(&text_final);
                 reused
             }
             Err(e) => {
@@ -626,14 +639,20 @@ fn sta_prompt(request: &str, cwd: &str, shot: Option<&str>) -> String {
 fn sta_inner_command(agent: &str, template: &str, prompt: &str) -> String {
     let flat = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
     let quoted = format!("'{}'", flat.replace('\'', "'\\''"));
-    if template.is_empty() {
-        match agent {
-            "claude" => format!("claude {quoted}"),
-            "codex" => format!("codex exec {quoted}"),
-            _ => format!("omp -p {quoted}"),
-        }
-    } else {
-        template.replace("{prompt}", &quoted)
+    if !template.is_empty() {
+        return template.replace("{prompt}", &quoted);
+    }
+    // Binaire manquant -> fallback omp (évite terminal qui s'ouvre et meurt).
+    let bin = match agent {
+        "claude" => "claude",
+        "codex" => "codex",
+        _ => "omp",
+    };
+    let effective = if have_bin(bin) { agent } else { "omp" };
+    match effective {
+        "claude" => format!("claude {quoted}"),
+        "codex" => format!("codex exec {quoted}"),
+        _ => format!("omp -p {quoted}"),
     }
 }
 
@@ -717,6 +736,9 @@ fn launch_agent(request: &str) -> Result<(bool, Option<String>), String> {
         spawn_sta_term(&format!(
           "exec tmux attach-session -t {STA_SESSION} 2>/dev/null || exec tmux new-session -s {STA_SESSION}"
         ));
+        // Laisse le terminal apparaître, puis ramène-le devant.
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        focus_sta_term();
       }
       return Ok((live, Some(prompt)));
     }
@@ -922,6 +944,17 @@ fn set_config(
     sta_context: Option<bool>,
     realtime_preview: Option<bool>,
     auto_paste: Option<bool>,
+    active_pills: Option<Vec<String>>,
+    ollama_url: Option<String>,
+    ollama_model: Option<String>,
+    chat_provider: Option<String>,
+    chat_model: Option<String>,
+    chat_base_url: Option<String>,
+    fish_voice: Option<String>,
+    sta_voice: Option<bool>,
+    popup_size: Option<String>,
+    card_opacity: Option<f64>,
+    popup_mochi: Option<bool>,
 ) -> Result<(), String> {
     config::set(
         popup_pos,
@@ -935,6 +968,17 @@ fn set_config(
         sta_context,
         realtime_preview,
         auto_paste,
+        active_pills,
+        ollama_url,
+        ollama_model,
+        chat_provider,
+        chat_model,
+        chat_base_url,
+        fish_voice,
+        sta_voice,
+        popup_size,
+        card_opacity,
+        popup_mochi,
     )
 }
 
@@ -984,7 +1028,9 @@ fn sta_open_terminal() -> Result<(), String> {
 fn set_api_key(provider: String, key: String) -> Result<(), String> {
     match provider.as_str() {
         "fish_audio" => stt::set_fish_api_key(&key),
-        "anthropic" | "openai" => llm::set_cloud_key(&provider, &key),
+        "anthropic" | "openai" | "google" | "openrouter" | "deepseek" | "qwen" | "moonshot" => {
+            llm::set_cloud_key(&provider, &key)
+        }
         _ => Err(format!("unknown provider '{provider}'")),
     }
 }
@@ -993,7 +1039,9 @@ fn set_api_key(provider: String, key: String) -> Result<(), String> {
 fn has_api_key(provider: String) -> bool {
     let entry = match provider.as_str() {
         "fish_audio" => keyring::Entry::new("whisp", "fish_audio"),
-        "anthropic" | "openai" => keyring::Entry::new("whisp", provider.as_str()),
+        "anthropic" | "openai" | "google" | "openrouter" | "deepseek" | "qwen" | "moonshot" => {
+            keyring::Entry::new("whisp", provider.as_str())
+        }
         _ => return false,
     };
     entry
@@ -1001,6 +1049,81 @@ fn has_api_key(provider: String) -> bool {
         .and_then(|e| e.get_password().ok())
         .map(|k| !k.trim().is_empty())
         .unwrap_or(false)
+}
+
+/// Statut hooks par agent (Settings → Agents) : installé oui/non + chemin config.
+#[tauri::command]
+fn agent_hook_status() -> Vec<serde_json::Value> {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let check = |id: &str, name: &str, path: std::path::PathBuf, marker: &str| {
+        let installed = std::fs::read_to_string(&path)
+            .map(|c| c.contains(marker))
+            .unwrap_or(false);
+        serde_json::json!({ "id": id, "name": name, "installed": installed, "path": path.display().to_string() })
+    };
+    vec![
+        check("claude", "Claude Code", home.join(".claude/settings.json"), "whisp-hook"),
+        check("codex", "Codex", home.join(".codex/config.toml"), "whisp"),
+        check("gemini", "Gemini CLI", home.join(".gemini/settings.json"), "whisp-hook"),
+        check("copilot", "Copilot CLI", home.join(".config/github-copilot/hooks.json"), "whisp"),
+    ]
+}
+
+/// Lance `install-hook.sh --agent <id>` (Settings → Agents → Installer).
+#[tauri::command]
+fn install_agent_hooks(agent: String) -> Result<String, String> {
+    let known = ["claude", "codex", "gemini", "copilot"];
+    if !known.contains(&agent.as_str()) {
+        return Err(format!("unknown agent '{agent}'"));
+    }
+    let script = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+        .map(|d| d.join("install-hook.sh"))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("install-hook.sh"))
+        })
+        .filter(|p| p.exists())
+        .ok_or_else(|| "install-hook.sh introuvable".to_string())?;
+    let out = std::process::Command::new("bash")
+        .arg(&script)
+        .arg("--agent")
+        .arg(&agent)
+        .output()
+        .map_err(|e| format!("install-hook: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        Err(format!("install-hook: {}", String::from_utf8_lossy(&out.stderr).trim()))
+    }
+}
+
+/// Teste la connexion au serveur Ollama (Settings → Modèles locaux).
+#[tauri::command]
+fn test_ollama(url: Option<String>) -> Result<String, String> {
+    let base = url
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(config::ollama_url)
+        .trim_end_matches('/')
+        .to_string();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("ollama: {e}"))?;
+    let tags: serde_json::Value = client
+        .get(format!("{base}/api/tags"))
+        .send()
+        .map_err(|e| format!("ollama injoignable ({base}) : {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("ollama status: {e}"))?
+        .json()
+        .map_err(|e| format!("ollama decode: {e}"))?;
+    let n = tags.get("models").and_then(|m| m.as_array()).map(|a| a.len()).unwrap_or(0);
+    Ok(format!("Ollama OK ({base}, {n} modèle(s))"))
 }
 
 #[tauri::command]
@@ -1398,6 +1521,19 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 v.get("staContext").and_then(|x| x.as_bool()),
                 v.get("realtimePreview").and_then(|x| x.as_bool()),
                 v.get("autoPaste").and_then(|x| x.as_bool()),
+                v.get("activePills").and_then(|x| x.as_array()).map(|a| {
+                    a.iter().filter_map(|y| y.as_str().map(|s| s.to_string())).collect::<Vec<String>>()
+                }),
+                str_field("ollamaUrl"),
+                str_field("ollamaModel"),
+                str_field("chatProvider"),
+                str_field("chatModel"),
+                str_field("chatBaseUrl"),
+                str_field("fishVoice"),
+                v.get("staVoice").and_then(|x| x.as_bool()),
+                str_field("popupSize"),
+                v.get("cardOpacity").and_then(|x| x.as_f64()),
+                v.get("popupMochi").and_then(|x| x.as_bool()),
             ) {
                 Ok(()) => ok(serde_json::json!(config::load())),
                 Err(e) => fail(e),
@@ -1487,6 +1623,15 @@ pub fn run() {
             agent_decide,
             has_api_key,
             list_input_devices,
+            agent_hook_status,
+            install_agent_hooks,
+            test_ollama,
+            voice::speak_text,
+            shortcuts::list_shortcuts,
+            shortcuts::reload_hyprland,
+            appearance::set_popup_size,
+            updates::app_version,
+            updates::check_updates,
             llm::chat_command,
             llm::dictation_stats,
             show_window,

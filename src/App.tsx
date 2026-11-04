@@ -7,6 +7,7 @@ import Recorder from "./components/Recorder";
 import Stats from "./components/Stats";
 import Island from "./island/Island";
 import Wardrobe from "./components/Wardrobe";
+import { AppearanceSection, ShortcutsSection, UpdatesSection, VoiceSection } from "./components/SettingsExtras";
 import { readOutfit, writeOutfit, type OutfitId } from "./mochi/types";
 import "./App.css";
 
@@ -25,7 +26,40 @@ interface BackendConfig {
   staCommand?: unknown;
   autoPaste?: unknown;
   realtimePreview?: unknown;
+  activePills?: unknown;
+  ollamaUrl?: unknown;
+  ollamaModel?: unknown;
+  chatProvider?: unknown;
+  chatModel?: unknown;
+  chatBaseUrl?: unknown;
 }
+
+interface AgentHookEntry {
+  id: string;
+  name: string;
+  installed: boolean;
+  path: string;
+}
+
+/** Pills Settings → catalogue fidèle à coucou (`activePills` en config). */
+const PILL_DEFS: Array<{ id: string; label: string; hint: string }> = [
+  { id: "dictee", label: "Dictée", hint: "Transcription + collage au curseur" },
+  { id: "sta", label: "STA", hint: "Agent lancé avec la dictée comme demande" },
+  { id: "agents", label: "Agents suivis", hint: "Sessions agents via hooks (island)" },
+  { id: "chat", label: "Chat", hint: "Modèle local ou cloud" },
+];
+
+const CHAT_PROVIDER_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: "ollama", label: "Ollama (local)" },
+  { id: "anthropic", label: "Anthropic" },
+  { id: "openai", label: "OpenAI" },
+  { id: "google", label: "Gemini (OpenAI-compatible)" },
+  { id: "openrouter", label: "OpenRouter" },
+  { id: "deepseek", label: "DeepSeek" },
+  { id: "qwen", label: "Qwen" },
+  { id: "moonshot", label: "Moonshot" },
+  { id: "custom", label: "Serveur OpenAI-compatible" },
+];
 
 type SttKind = "local" | "cloud_fish_audio";
 
@@ -223,6 +257,24 @@ function Settings() {
   const [outfit, setOutfit] = useState<OutfitId>(() => readOutfit());
   const [autoPaste, setAutoPaste] = useState<boolean>(() => readStored("whisp:auto-paste") !== "0");
   const [realtime, setRealtime] = useState<boolean>(() => readStored("whisp:realtime") !== "0");
+  // Pills actives (Settings → Pills, cf. coucou `activePills`) : backend source de vérité, localStorage repli.
+  const [activePills, setActivePills] = useState<string[]>(() => readJSON<string[]>("whisp:active-pills", ["dictee", "sta", "agents", "chat"]));
+  // Agents (Settings → Agents) : statut hooks lu au mount.
+  const [agentHooks, setAgentHooks] = useState<AgentHookEntry[] | null>(null);
+  const [agentMsg, setAgentMsg] = useState<string | null>(null);
+  const [agentBusy, setAgentBusy] = useState<string | null>(null);
+  // Chat providers (Settings → Chat providers) : provider + modèle + clé.
+  const [chatProvider, setChatProvider] = useState<string>(() => readStored("whisp:chat-provider") ?? "ollama");
+  const [chatModel, setChatModel] = useState<string>(() => readStored("whisp:chat-model") ?? "");
+  const [chatBaseUrl, setChatBaseUrl] = useState<string>(() => readStored("whisp:chat-base-url") ?? "");
+  const [chatKey, setChatKey] = useState("");
+  const [chatKeyHint, setChatKeyHint] = useState<string | null>(null);
+  const [chatKeyState, setChatKeyState] = useState<boolean | null>(null);
+  // Modèles locaux (Settings → Local models) : Ollama URL + modèle + test.
+  const [ollamaUrl, setOllamaUrl] = useState<string>(() => readStored("whisp:ollama-url") ?? "http://127.0.0.1:11434");
+  const [ollamaModel, setOllamaModel] = useState<string>(() => readStored("whisp:ollama-model") ?? "qwen2.5:3b");
+  const [ollamaMsg, setOllamaMsg] = useState<string | null>(null);
+  const [ollamaBusy, setOllamaBusy] = useState(false);
 
   // Theme: apply + persist; recorder window reads the same key on mount.
   useEffect(() => {
@@ -259,6 +311,28 @@ function Settings() {
         if (typeof cfg?.staCommand === "string") {
           setStaCommand(cfg.staCommand);
         }
+        if (Array.isArray(cfg?.activePills)) {
+          const kept = (cfg.activePills as unknown[]).filter((p): p is string => typeof p === "string");
+          if (kept.length > 0) {
+            setActivePills(kept);
+            writeJSON("whisp:active-pills", kept);
+          }
+        }
+        if (typeof cfg?.ollamaUrl === "string" && cfg.ollamaUrl.trim()) {
+          setOllamaUrl(cfg.ollamaUrl);
+        }
+        if (typeof cfg?.ollamaModel === "string" && cfg.ollamaModel.trim()) {
+          setOllamaModel(cfg.ollamaModel);
+        }
+        if (typeof cfg?.chatProvider === "string" && cfg.chatProvider.trim()) {
+          setChatProvider(cfg.chatProvider);
+        }
+        if (typeof cfg?.chatModel === "string") {
+          setChatModel(cfg.chatModel);
+        }
+        if (typeof cfg?.chatBaseUrl === "string") {
+          setChatBaseUrl(cfg.chatBaseUrl);
+        }
       })
       .catch(() => {
         /* backend en cours : localStorage seul */
@@ -270,9 +344,24 @@ function Settings() {
     invoke<boolean>("has_api_key", { provider: "fish_audio" })
       .then((v) => setHasKey(v === true))
       .catch(() => setHasKey(null));
+    invoke<AgentHookEntry[]>("agent_hook_status")
+      .then((rows) => {
+        if (Array.isArray(rows)) setAgentHooks(rows);
+      })
+      .catch(() => setAgentHooks(null));
     refreshStaStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // État de la clé du provider de chat actif (Settings → Chat providers).
+  useEffect(() => {
+    if (chatProvider === "ollama") {
+      setChatKeyState(null);
+      return;
+    }
+    invoke<boolean>("has_api_key", { provider: chatProvider })
+      .then((v) => setChatKeyState(v === true))
+      .catch(() => setChatKeyState(null));
+  }, [chatProvider]);
   useEffect(() => {
     invoke<BackendMode[]>("list_modes")
       .then((ms) => {
@@ -514,6 +603,116 @@ function Settings() {
     invoke("set_config", { staCommand: next || null }).catch(() => {
       /* backend en cours : localStorage seul */
     });
+  };
+
+  const togglePill = (id: string): void => {
+    const next = activePills.includes(id) ? activePills.filter((p) => p !== id) : [...activePills, id];
+    setActivePills(next);
+    writeJSON("whisp:active-pills", next);
+    invoke("set_config", { activePills: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const installAgent = (agent: string): void => {
+    setAgentBusy(agent);
+    setAgentMsg(null);
+    invoke<string>("install_agent_hooks", { agent })
+      .then((out) => {
+        setAgentMsg(out || `Hooks installés (${agent}).`);
+        return invoke<AgentHookEntry[]>("agent_hook_status");
+      })
+      .then((rows) => {
+        if (Array.isArray(rows)) setAgentHooks(rows);
+      })
+      .catch((e: unknown) => {
+        setAgentMsg(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => setAgentBusy(null));
+  };
+
+  const pushChatProvider = (next: string): void => {
+    setChatProvider(next);
+    try {
+      localStorage.setItem("whisp:chat-provider", next);
+    } catch {
+      /* stockage indisponible */
+    }
+    invoke("set_config", { chatProvider: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const pushChatModel = (next: string): void => {
+    setChatModel(next);
+    try {
+      localStorage.setItem("whisp:chat-model", next);
+    } catch {
+      /* stockage indisponible */
+    }
+    invoke("set_config", { chatModel: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const pushChatBaseUrl = (next: string): void => {
+    setChatBaseUrl(next);
+    try {
+      localStorage.setItem("whisp:chat-base-url", next);
+    } catch {
+      /* stockage indisponible */
+    }
+    invoke("set_config", { chatBaseUrl: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const saveChatKey = (): void => {
+    const key = chatKey.trim();
+    if (!key || chatProvider === "ollama") {
+      setChatKeyHint(chatProvider === "ollama" ? "Ollama local : aucune clé requise." : "Collez d'abord votre clé.");
+      return;
+    }
+    invoke("set_api_key", { provider: chatProvider, key })
+      .then(() => {
+        setChatKeyState(true);
+        setChatKey("");
+        setChatKeyHint("Clé enregistrée.");
+      })
+      .catch(() => setChatKeyHint("Backend en cours : commande set_api_key indisponible."));
+  };
+
+  const pushOllamaUrl = (next: string): void => {
+    setOllamaUrl(next);
+    try {
+      localStorage.setItem("whisp:ollama-url", next);
+    } catch {
+      /* stockage indisponible */
+    }
+    invoke("set_config", { ollamaUrl: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const pushOllamaModel = (next: string): void => {
+    setOllamaModel(next);
+    try {
+      localStorage.setItem("whisp:ollama-model", next);
+    } catch {
+      /* stockage indisponible */
+    }
+    invoke("set_config", { ollamaModel: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const testOllama = (): void => {
+    setOllamaBusy(true);
+    setOllamaMsg(null);
+    invoke<string>("test_ollama", { url: ollamaUrl || null })
+      .then((out) => setOllamaMsg(out))
+      .catch((e: unknown) => setOllamaMsg(e instanceof Error ? e.message : String(e)))
+      .finally(() => setOllamaBusy(false));
   };
   const [staStatus, setStaStatus] = useState<StaStatus | null>(null);
   const [staOpenMsg, setStaOpenMsg] = useState<string | null>(null);
@@ -975,6 +1174,138 @@ function Settings() {
                 </section>
               ) : null}
             </section>
+            <section className="panel">
+              <div className="card-head">
+                <h2>Agents</h2>
+                <p className="card-hint">Suivi des sessions via hooks (island) — un statut par agent, installation via install-hook.sh.</p>
+              </div>
+              {(agentHooks ?? []).map((a) => (
+                <div className="check-row" key={a.id}>
+                  <span>
+                    <i className="dot" style={{ background: a.installed ? "#22c55e" : "#f4505e" }} />
+                    {" "}{a.name}
+                    <span className="field-hint"> — {a.installed ? "installé" : "non installé"} · {a.path}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={agentBusy === a.id}
+                    aria-busy={agentBusy === a.id}
+                    onClick={() => installAgent(a.id)}
+                  >
+                    {agentBusy === a.id ? "Installation…" : a.installed ? "Réinstaller" : "Installer"}
+                  </button>
+                </div>
+              ))}
+              {agentHooks === null ? <p className="field-hint">Statut hooks indisponible (backend en cours).</p> : null}
+              {agentMsg ? <p className="field-hint" role="status">{agentMsg}</p> : null}
+            </section>
+            <section className="panel">
+              <div className="card-head">
+                <h2>Pills actives</h2>
+                <p className="card-hint">Choisissez ce que whisp affiche — {activePills.length}/{PILL_DEFS.length} affichées.</p>
+              </div>
+              {PILL_DEFS.map((p) => (
+                <div className="check-row" key={p.id}>
+                  <span>{p.label}<span className="field-hint"> — {p.hint}</span></span>
+                  <Toggle checked={activePills.includes(p.id)} onChange={() => togglePill(p.id)} label={p.label} />
+                </div>
+              ))}
+            </section>
+            <section className="panel">
+              <div className="card-head">
+                <h2>Chat providers</h2>
+                <p className="card-hint">Discutez via Anthropic, OpenAI ou un endpoint OpenAI-compatible — clés en trousseau système.</p>
+              </div>
+              <label className="check-row">
+                <span>Fournisseur</span>
+                <select value={chatProvider} onChange={(e) => pushChatProvider(e.currentTarget.value)}>
+                  {CHAT_PROVIDER_OPTIONS.map((o) => (
+                    <option key={o.id} value={o.id}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="check-row">
+                <span>Modèle</span>
+                <input
+                  value={chatModel}
+                  onChange={(e) => pushChatModel(e.currentTarget.value)}
+                  placeholder={chatProvider === "ollama" ? "qwen2.5:3b" : "ex. deepseek-chat, gemini-2.0-flash, qwen-plus"}
+                  aria-label="Modèle du fournisseur de chat"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              {(chatProvider === "deepseek" || chatProvider === "qwen" || chatProvider === "moonshot" || chatProvider === "custom" || chatProvider === "openrouter") ? (
+                <label className="check-row">
+                  <span>Base URL (OpenAI-compatible)</span>
+                  <input
+                    value={chatBaseUrl}
+                    onChange={(e) => pushChatBaseUrl(e.currentTarget.value)}
+                    placeholder="https://…/v1 (vide = défaut du provider)"
+                    aria-label="Base URL OpenAI-compatible"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+              ) : null}
+              {chatProvider !== "ollama" ? (
+                <div className="field-label">
+                  <span>Clé {chatProvider}{chatKeyState === true ? " (configurée)" : chatKeyState === false ? " (absente)" : ""}</span>
+                  <div className="api-key-row">
+                    <input
+                      type="password"
+                      value={chatKey}
+                      onChange={(e) => setChatKey(e.currentTarget.value)}
+                      placeholder={`Coller la clé ${chatProvider}…`}
+                      aria-label={`Clé ${chatProvider}`}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <button type="button" className="primary" onClick={saveChatKey}>Enregistrer</button>
+                  </div>
+                  {chatKeyHint ? <span className="field-hint">{chatKeyHint}</span> : null}
+                </div>
+              ) : <p className="field-hint">Ollama local : aucune clé requise (voir Modèles locaux).</p>}
+            </section>
+            <section className="panel">
+              <div className="card-head">
+                <h2>Modèles locaux</h2>
+                <p className="card-hint">Ollama sur cet ordinateur — rien ne quitte votre PC.</p>
+              </div>
+              <label className="check-row">
+                <span>Ollama URL</span>
+                <input
+                  value={ollamaUrl}
+                  onChange={(e) => pushOllamaUrl(e.currentTarget.value)}
+                  placeholder="http://127.0.0.1:11434"
+                  aria-label="Adresse du serveur Ollama"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="check-row">
+                <span>Ollama modèle</span>
+                <input
+                  value={ollamaModel}
+                  onChange={(e) => pushOllamaModel(e.currentTarget.value)}
+                  placeholder="qwen2.5:3b"
+                  aria-label="Modèle Ollama"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <div className="row">
+                <button type="button" className="ghost" onClick={testOllama} disabled={ollamaBusy} aria-busy={ollamaBusy}>
+                  {ollamaBusy ? "Test…" : "Tester"}
+                </button>
+                {ollamaMsg ? <span className="field-hint" role="status">{ollamaMsg}</span> : null}
+              </div>
+            </section>
+            <VoiceSection hasKey={hasKey} />
+            <ShortcutsSection />
+            <AppearanceSection theme={theme} onTheme={pushTheme} popupPos={popupPos} onPopupPos={pushPopupPos} />
+            <UpdatesSection />
           </>
         ) : null}
       </main>

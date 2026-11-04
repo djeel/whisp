@@ -288,7 +288,7 @@ function IslandCard({
                   <span className="island-ticker">{p.last_line || "—"}</span>
                   {p.pending_approval ? <span className="island-ask">●</span> : null}
                 </div>
-                {selected === p.session_id ? <MiniTerm sessionId={p.session_id} /> : null}
+                {selected === p.session_id ? <MiniTerm sessionId={p.session_id} pill={p} /> : null}
               </div>
             ))}
           </div>
@@ -421,13 +421,19 @@ function ApprovalView({ card }: { card: ApprovalCard }) {
 /// Mini-terminal for one pill: last tmux lines, 1 s poll, input via send-keys.
 /// No xterm.js: a <pre> + form keeps the bundle unchanged and never blocks the
 /// agent (poll stops when collapsed or when no backend answers).
-function MiniTerm({ sessionId }: { sessionId: string }) {
+type MiniTab = "term" | "files" | "info";
+
+/// Mini-terminal modulaire : onglets Terminal / Fichiers / Détails + actions.
+/// Terminal : capture tmux live + envoi d'instructions. Fichiers : déduit du
+/// ticker (paths détectés). Détails : agent, session, cwd, état.
+function MiniTerm({ sessionId, pill }: { sessionId: string; pill: Pill }) {
+  const [tab, setTab] = useState<MiniTab>("term");
   const [text, setText] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri() || tab !== "term") return;
     let cancelled = false;
     const pull = (): void => {
       void invoke<string>("island_term_view", { sessionId })
@@ -439,56 +445,128 @@ function MiniTerm({ sessionId }: { sessionId: string }) {
         });
     };
     pull();
-    const id = window.setInterval(pull, 1000);
+    const id = window.setInterval(pull, 1500);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [sessionId]);
+  }, [sessionId, tab]);
 
   const send = (): void => {
     const t = input.trim();
     if (!t || sending || !isTauri()) return;
     setSending(true);
     void invoke("island_term_send", { sessionId, text: t })
-      .then(() => {
-        setInput("");
-      })
+      .then(() => setInput(""))
       .catch(() => undefined)
-      .finally(() => {
-        setSending(false);
-      });
+      .finally(() => setSending(false));
   };
+
+  const openTerminal = (): void => {
+    if (!isTauri()) return;
+    void invoke("sta_open_terminal").catch(() => undefined);
+  };
+
+  const files = extractPaths(pill.last_line);
 
   return (
     <div className="island-term">
-      {text !== null ? (
-        <pre className="island-term-view">{text || "(empty)"}</pre>
-      ) : (
-        <p className="island-term-empty">no live terminal for this session</p>
-      )}
-      <form
-        className="island-term-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          send();
-        }}
-      >
-        <input
-          type="text"
-          className="island-term-input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type an instruction…"
-          aria-label="Send to session"
-          maxLength={4000}
-        />
-        <button type="submit" className="rec-btn" disabled={!input.trim() || sending}>
-          Send
+      <div className="island-term-tabs" role="tablist" aria-label="Panneau session">
+        {(["term", "files", "info"] as MiniTab[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            className={`island-term-tab${tab === t ? " on" : ""}`}
+            onClick={() => setTab(t)}
+          >
+            {t === "term" ? "Terminal" : t === "files" ? `Fichiers${files.length ? ` ${files.length}` : ""}` : "Détails"}
+          </button>
+        ))}
+        <span className="island-term-spacer" />
+        <button type="button" className="island-term-action" onClick={openTerminal} title="Ouvrir le terminal complet">
+          ⧉
         </button>
-      </form>
+      </div>
+      {tab === "term" ? (
+        <>
+          {text !== null ? (
+            <pre className="island-term-view">{text || "(empty)"}</pre>
+          ) : (
+            <p className="island-term-empty">no live terminal for this session</p>
+          )}
+          <form
+            className="island-term-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
+          >
+            <input
+              type="text"
+              className="island-term-input"
+              value={input}
+              onChange={(e) => setInput(e.currentTarget.value)}
+              placeholder="Type an instruction… (Enter)"
+              aria-label="Send to session"
+              maxLength={4000}
+            />
+            <button type="submit" className="rec-btn" disabled={!input.trim() || sending}>
+              Send
+            </button>
+          </form>
+        </>
+      ) : null}
+      {tab === "files" ? (
+        <div className="island-term-files">
+          {files.length === 0 ? (
+            <p className="island-term-empty">aucun fichier détecté dans le ticker</p>
+          ) : (
+            <ul>
+              {files.map((f) => (
+                <li key={f} title={f}>
+                  <code>{f}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+      {tab === "info" ? (
+        <dl className="island-term-info">
+          <div>
+            <dt>Agent</dt>
+            <dd>{pill.agent}</dd>
+          </div>
+          <div>
+            <dt>Session</dt>
+            <dd title={pill.session_id}>{pill.session_id}</dd>
+          </div>
+          <div>
+            <dt>Dossier</dt>
+            <dd title={pill.cwd ?? undefined}>{pill.cwd ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>État</dt>
+            <dd>{pill.state}</dd>
+          </div>
+        </dl>
+      ) : null}
     </div>
   );
+}
+
+/// Chemins probables dans une ligne de ticker (fichiers touchés par l'agent).
+function extractPaths(line: string): string[] {
+  const out = new Set<string>();
+  const re = /(?:^|[\s:(])([A-Za-z0-9_@./-]+\.[A-Za-z0-9]{1,5})(?=[\s:),]|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    const p = m[1];
+    if (p.includes(".") && !p.startsWith(".") && p.length < 120) out.add(p);
+  }
+  return [...out].slice(0, 8);
 }
 
 function demoPills(): Pill[] {

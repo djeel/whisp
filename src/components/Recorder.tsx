@@ -43,6 +43,12 @@ function applyThemeFromStorage(): void {
   const theme = readStored("whisp:theme") ?? "system";
   document.documentElement.dataset.theme = theme;
 }
+/** Opacité carte + Mochi popup (Apparence) : CSS var + localStorage. */
+function applyPopupAppearance(): void {
+  const raw = Number(readStored("whisp:card-opacity"));
+  const alpha = Number.isFinite(raw) && raw >= 0.4 && raw <= 1 ? raw : 1;
+  document.documentElement.style.setProperty("--card-alpha", String(alpha));
+}
 /** Reposition the recorder window per the backend config (fallback: storage). */
 async function applyPopupPosition(): Promise<void> {
   if (!isTauri()) return;
@@ -160,6 +166,7 @@ export default function Recorder() {
   const [modeIndex, setModeIndex] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [mini, setMini] = useState(false);
+  const [showMochi, setShowMochi] = useState(() => readStored("whisp:popup-mochi") !== "0");
   const levelRef = useRef(0);
   const [partial, setPartial] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -188,6 +195,8 @@ export default function Recorder() {
 
   useEffect(() => {
     applyThemeFromStorage();
+    applyPopupAppearance();
+    setShowMochi(readStored("whisp:popup-mochi") !== "0");
     void applyPopupPosition();
   }, []);
 
@@ -310,11 +319,13 @@ export default function Recorder() {
     <div className="recorder-stage">
       <div className={cardClass} role="dialog" aria-label="whisp recorder" ref={cardRef}>
         <div className="recorder-top">
-          <Mochi
-            mood={status === "recording" ? "working" : status === "processing" ? "thinking" : status === "done" ? "finished" : status === "error" ? "error" : "idle"}
-            size={24}
-            level={levelRef}
-          />
+          {showMochi ? (
+            <Mochi
+              mood={status === "recording" ? "working" : status === "processing" ? "thinking" : status === "done" ? "finished" : status === "error" ? "error" : "idle"}
+              size={24}
+              level={levelRef}
+            />
+          ) : null}
           <button
             type="button"
             className="resize-btn"

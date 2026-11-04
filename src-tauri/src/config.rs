@@ -35,6 +35,39 @@ pub struct AppConfig {
     pub realtime_preview: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_paste: Option<bool>,
+    /// Pills actives (Settings → Pills) : ids parmi `dictee`, `sta`, `agents`, `chat`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_pills: Option<Vec<String>>,
+    /// Adresse du serveur Ollama local (`Modèles locaux`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ollama_url: Option<String>,
+    /// Modèle Ollama par défaut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ollama_model: Option<String>,
+    /// Fournisseur de chat actif (Settings → Chat providers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_provider: Option<String>,
+    /// Modèle du fournisseur de chat actif.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_model: Option<String>,
+    /// Base URL OpenAI-compatible (DeepSeek/Qwen/Moonshot/serveur custom).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_base_url: Option<String>,
+    /// Voix Fish pour `speak_text` (WhispSettings2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fish_voice: Option<String>,
+    /// Voix STA on/off (WhispSettings2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sta_voice: Option<bool>,
+    /// Taille popup S/M/L (WhispSettings2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup_size: Option<String>,
+    /// Opacité carte (WhispSettings2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_opacity: Option<f64>,
+    /// Mochi popup on/off (WhispSettings2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup_mochi: Option<bool>,
 }
 
 fn config_path() -> std::path::PathBuf {
@@ -73,6 +106,17 @@ pub fn set(
     sta_context: Option<bool>,
     realtime_preview: Option<bool>,
     auto_paste: Option<bool>,
+    active_pills: Option<Vec<String>>,
+    ollama_url: Option<String>,
+    ollama_model: Option<String>,
+    chat_provider: Option<String>,
+    chat_model: Option<String>,
+    chat_base_url: Option<String>,
+    fish_voice: Option<String>,
+    sta_voice: Option<bool>,
+    popup_size: Option<String>,
+    card_opacity: Option<f64>,
+    popup_mochi: Option<bool>,
 ) -> Result<(), String> {
     if let Some(m) = &stt_model {
         if !matches!(m.as_str(), "small" | "medium" | "base") {
@@ -122,6 +166,49 @@ pub fn set(
     }
     if auto_paste.is_some() {
         cfg.auto_paste = auto_paste;
+    }
+    if active_pills.is_some() {
+        cfg.active_pills = active_pills;
+    }
+    if ollama_url.is_some() {
+        cfg.ollama_url = ollama_url;
+    }
+    if ollama_model.is_some() {
+        cfg.ollama_model = ollama_model;
+    }
+    if let Some(p) = &chat_provider {
+        const KNOWN: &[&str] = &[
+            "ollama", "anthropic", "openai", "google", "openrouter", "deepseek", "qwen", "moonshot",
+            "custom",
+        ];
+        if !KNOWN.contains(&p.as_str()) {
+            return Err(format!("unknown chat_provider '{p}'"));
+        }
+    }
+    if chat_provider.is_some() {
+        cfg.chat_provider = chat_provider;
+    }
+    if chat_model.is_some() {
+        cfg.chat_model = chat_model;
+    }
+    if chat_base_url.is_some() {
+        cfg.chat_base_url = chat_base_url;
+    }
+    // Champs WhispSettings2 : sans validation, assignés si présents.
+    if fish_voice.is_some() {
+        cfg.fish_voice = fish_voice;
+    }
+    if sta_voice.is_some() {
+        cfg.sta_voice = sta_voice;
+    }
+    if popup_size.is_some() {
+        cfg.popup_size = popup_size;
+    }
+    if card_opacity.is_some() {
+        cfg.card_opacity = card_opacity;
+    }
+    if popup_mochi.is_some() {
+        cfg.popup_mochi = popup_mochi;
     }
     save(&cfg)
 }
@@ -198,4 +285,40 @@ pub fn stt_model_name() -> String {
         Some(m @ ("small" | "medium" | "base")) => m.to_string(),
         _ => "medium".to_string(),
     }
+}
+
+/// Pills actives (Settings → Pills). Défaut : les 4 affichées.
+pub fn active_pills() -> Vec<String> {
+    let all = vec![
+        "dictee".to_string(),
+        "sta".to_string(),
+        "agents".to_string(),
+        "chat".to_string(),
+    ];
+    match load().active_pills {
+        Some(list) => {
+            let kept: Vec<String> = list
+                .into_iter()
+                .filter(|p| all.iter().any(|a| a == p))
+                .collect();
+            if kept.is_empty() { all } else { kept }
+        }
+        None => all,
+    }
+}
+
+/// Adresse du serveur Ollama ; défaut boucle locale.
+pub fn ollama_url() -> String {
+    load()
+        .ollama_url
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:11434".to_string())
+}
+
+/// Modèle Ollama par défaut.
+pub fn ollama_model() -> String {
+    load()
+        .ollama_model
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "qwen2.5:3b".to_string())
 }
