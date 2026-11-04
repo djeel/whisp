@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # whisp — one-shot installer (CachyOS/Arch + Hyprland/Wayland).
-# Usage: curl -fsSL https://raw.githubusercontent.com/<you>/whisp/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/djeel/whisp/main/install.sh | bash
 set -euo pipefail
 
-REPO="${WHISP_REPO:-https://github.com/<you>/whisp.git}"
+REPO="${WHISP_REPO:-https://github.com/djeel/whisp.git}"
 PREFIX="${WHISP_PREFIX:-$HOME/.local}"
 SRC_DIR="${WHISP_SRC:-$HOME/.local/share/whisp-app}"
 FW_DIR="$HOME/.local/share/whisp/fw"
