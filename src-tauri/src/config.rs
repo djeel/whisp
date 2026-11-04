@@ -33,6 +33,8 @@ pub struct AppConfig {
     pub sta_context: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realtime_preview: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_paste: Option<bool>,
 }
 
 fn config_path() -> std::path::PathBuf {
@@ -70,6 +72,7 @@ pub fn set(
     sta_cwd: Option<String>,
     sta_context: Option<bool>,
     realtime_preview: Option<bool>,
+    auto_paste: Option<bool>,
 ) -> Result<(), String> {
     if let Some(m) = &stt_model {
         if !matches!(m.as_str(), "small" | "medium" | "base") {
@@ -117,7 +120,16 @@ pub fn set(
     if realtime_preview.is_some() {
         cfg.realtime_preview = realtime_preview;
     }
+    if auto_paste.is_some() {
+        cfg.auto_paste = auto_paste;
+    }
     save(&cfg)
+}
+
+/// Auto-paste the final text at the cursor (Ctrl+V); on by default.
+/// Off = clipboard only (+ history).
+pub fn auto_paste() -> bool {
+    load().auto_paste.unwrap_or(true)
 }
 
 /// Live partial transcription during recording; on by default.

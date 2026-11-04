@@ -162,6 +162,29 @@ export default function Recorder() {
   const [mini, setMini] = useState(false);
   const levelRef = useRef(0);
   const [partial, setPartial] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  // Popup adaptative SANS boucle : mesure différée (300 ms de debounce)
+  // après chaque changement de contenu, clampée 120..400. Le ResizeObserver
+  // en continu créait une boucle setSize <-> relayout qui gelait l'app.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const card = cardRef.current;
+    if (!card) return;
+    const t = window.setTimeout(() => {
+      const h = Math.ceil(card.getBoundingClientRect().height);
+      const w = mini ? 420 : 720;
+      const ch = Math.min(400, Math.max(120, h));
+      if (ch > 0) {
+        getCurrentWindow()
+          .setSize(new LogicalSize(w, ch))
+          .catch(() => {
+            /* fenetre non redimensionnable ? on laisse */
+          });
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [mini, status, partial, message]);
 
   useEffect(() => {
     applyThemeFromStorage();
@@ -259,14 +282,9 @@ export default function Recorder() {
   }, []);
 
   const toggleSize = useCallback(() => {
-    const next = !mini;
-    setMini(next);
-    getCurrentWindow()
-      .setSize(new LogicalSize(next ? 420 : 720, next ? 116 : 200))
-      .catch(() => {
-        /* browser dev: CSS-only shrink */
-      });
-  }, [mini]);
+    setMini((m) => !m);
+    // L'autosize (ResizeObserver) ajuste la fenêtre : rien à faire ici.
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -290,7 +308,7 @@ export default function Recorder() {
 
   return (
     <div className="recorder-stage">
-      <div className={cardClass} role="dialog" aria-label="whisp recorder">
+      <div className={cardClass} role="dialog" aria-label="whisp recorder" ref={cardRef}>
         <div className="recorder-top">
           <Mochi
             mood={status === "recording" ? "working" : status === "processing" ? "thinking" : status === "done" ? "finished" : status === "error" ? "error" : "idle"}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import Chat from "./components/Chat";
-import Mochi, { type MochiMood } from "./components/Mochi";
+import Mochi from "./components/Mochi";
 import Recorder from "./components/Recorder";
 import Stats from "./components/Stats";
 import Island from "./island/Island";
@@ -23,6 +23,8 @@ interface BackendConfig {
   inputDevice?: unknown;
   staAgent?: unknown;
   staCommand?: unknown;
+  autoPaste?: unknown;
+  realtimePreview?: unknown;
 }
 
 type SttKind = "local" | "cloud_fish_audio";
@@ -219,7 +221,8 @@ function Settings() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [vocabMsg, setVocabMsg] = useState<string | null>(null);
   const [outfit, setOutfit] = useState<OutfitId>(() => readOutfit());
-  const [chatMood] = useState<MochiMood>("idle");
+  const [autoPaste, setAutoPaste] = useState<boolean>(() => readStored("whisp:auto-paste") !== "0");
+  const [realtime, setRealtime] = useState<boolean>(() => readStored("whisp:realtime") !== "0");
 
   // Theme: apply + persist; recorder window reads the same key on mount.
   useEffect(() => {
@@ -243,6 +246,12 @@ function Settings() {
         }
         if (typeof cfg?.inputDevice === "string") {
           setInputDevice(cfg.inputDevice);
+        }
+        if (typeof cfg?.autoPaste === "boolean") {
+          setAutoPaste(cfg.autoPaste);
+        }
+        if (typeof cfg?.realtimePreview === "boolean") {
+          setRealtime(cfg.realtimePreview);
         }
         if (typeof cfg?.staAgent === "string" && cfg.staAgent) {
           setStaAgent(cfg.staAgent);
@@ -376,6 +385,11 @@ function Settings() {
     } catch {
       /* storage unavailable */
     }
+    // Pousse au backend pour que la popup suive immédiatement.
+    const id = (backendModes ?? []).find((x) => x.label === m)?.id ?? m.toLowerCase();
+    invoke<BackendMode>("set_mode", { id }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
   };
   const setModeStt = (mode: BackendMode, stt: SttKind): void => {
     const updated: BackendMode = { ...mode, stt };
@@ -432,6 +446,30 @@ function Settings() {
       /* stockage indisponible */
     }
     invoke("set_config", { language: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const pushAutoPaste = (next: boolean): void => {
+    setAutoPaste(next);
+    try {
+      localStorage.setItem("whisp:auto-paste", next ? "1" : "0");
+    } catch {
+      /* stockage indisponible */
+    }
+    invoke("set_config", { autoPaste: next }).catch(() => {
+      /* backend en cours : localStorage seul */
+    });
+  };
+
+  const pushRealtime = (next: boolean): void => {
+    setRealtime(next);
+    try {
+      localStorage.setItem("whisp:realtime", next ? "1" : "0");
+    } catch {
+      /* stockage indisponible */
+    }
+    invoke("set_config", { realtimePreview: next }).catch(() => {
       /* backend en cours : localStorage seul */
     });
   };
@@ -651,7 +689,7 @@ function Settings() {
         {tab === "chat" ? (
           <section className="panel">
             <div className="card-head chat-head">
-              <Mochi mood={chatMood} size={32} outfit={outfit} animate={false} />
+              <Mochi mood="idle" size={32} outfit={outfit} animate={false} />
               <div>
                 <h1>Chat</h1>
                 <p className="card-hint">Discutez avec votre modèle local ou cloud.</p>
@@ -774,8 +812,12 @@ function Settings() {
                 <Toggle checked={prefs.playSound} onChange={(v) => patchPrefs({ playSound: v })} label="Son de fin de transcription" />
               </div>
               <div className="check-row">
-                <span id="cfg-copy">Copier automatiquement dans le presse-papiers</span>
-                <Toggle checked={prefs.autoCopy} onChange={(v) => patchPrefs({ autoCopy: v })} label="Copier automatiquement dans le presse-papiers" />
+                <span id="cfg-copy">Coller automatiquement au curseur</span>
+                <Toggle checked={autoPaste} onChange={(v) => pushAutoPaste(v)} label="Coller automatiquement au curseur (Ctrl+V). Désactivé = presse-papiers uniquement." />
+              </div>
+              <div className="check-row">
+                <span id="cfg-realtime">Aperçu en temps réel</span>
+                <Toggle checked={realtime} onChange={(v) => pushRealtime(v)} label="Afficher la transcription partielle pendant la dictée" />
               </div>
               <label className="check-row">
                 <span>Langue de dictée</span>

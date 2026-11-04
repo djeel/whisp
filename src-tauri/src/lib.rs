@@ -377,8 +377,12 @@ async fn finish_from_handle(
                 return Err("Agent introuvable, vérifie Configuration".to_string());
             }
         }
-    } else {
+    } else if config::auto_paste() {
         paste_text(&text_final);
+        false
+    } else {
+        // Collage auto désactivé : texte en presse-papiers + historique uniquement.
+        copy_to_clipboard(&text_final);
         false
     };
     hide_recorder(&app);
@@ -734,12 +738,12 @@ fn launch_agent(request: &str) -> Result<(bool, Option<String>), String> {
 
 /// Clipboard + auto-paste into the previously focused app.
 /// Best effort: failures keep text in history (and usually clipboard).
-fn paste_text(text: &str) {
+/// Clipboard only (no auto-paste). Used when `auto_paste` is off.
+fn copy_to_clipboard(text: &str) -> bool {
     if text.trim().is_empty() {
-        return;
+        return false;
     }
-    // 1. Clipboard via wl-copy (Wayland).
-    let wl_ok = std::process::Command::new("wl-copy")
+    std::process::Command::new("wl-copy")
         .arg("--type")
         .arg("text/plain")
         .stdin(std::process::Stdio::piped())
@@ -752,7 +756,14 @@ fn paste_text(text: &str) {
             child.wait()?;
             Ok::<_, std::io::Error>(())
         })
-        .is_ok();
+        .is_ok()
+}
+
+fn paste_text(text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let wl_ok = copy_to_clipboard(text);
     // 2. Paste via Ctrl+V (unicode-safe: accents pass through the clipboard,
     // unlike `ydotool type` which mangles non-ASCII on some layouts).
     // Give the compositor a beat to restore focus after hiding.
@@ -910,6 +921,7 @@ fn set_config(
     sta_cwd: Option<String>,
     sta_context: Option<bool>,
     realtime_preview: Option<bool>,
+    auto_paste: Option<bool>,
 ) -> Result<(), String> {
     config::set(
         popup_pos,
@@ -922,6 +934,7 @@ fn set_config(
         sta_cwd,
         sta_context,
         realtime_preview,
+        auto_paste,
     )
 }
 
@@ -1046,6 +1059,8 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::TrayIconBuilder;
 
+    let open = MenuItem::with_id(app, "tray-open", "Ouvrir whisp", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
     let record = MenuItem::with_id(app, "tray-record", "Record", true, None::<&str>)
         .map_err(|e| e.to_string())?;
     let cycle = MenuItem::with_id(app, "tray-cycle", "Next mode", true, None::<&str>)
@@ -1057,10 +1072,22 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
     let quit = MenuItem::with_id(app, "tray-quit", "Quit", true, None::<&str>)
         .map_err(|e| e.to_string())?;
     let sep = PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(app, &[&record, &cycle, &history_item, &settings, &sep, &quit])
+    let menu = Menu::with_items(app, &[&open, &sep, &record, &cycle, &history_item, &settings, &sep, &quit])
         .map_err(|e| e.to_string())?;
 
-    let mut builder = TrayIconBuilder::new().menu(&menu).tooltip("whisp");
+    let mut builder = TrayIconBuilder::new()
+        .menu(&menu)
+        .tooltip("whisp — clic pour ouvrir")
+        .on_tray_icon_event(|tray, event| {
+            use tauri::tray::TrayIconEvent;
+            // Left click = open the main window (Wayland appindicator
+            // menus don't always open on click).
+            if matches!(event, TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. }) {
+                let app = tray.app_handle().clone();
+                show_main_window(&app);
+            }
+        });
+
     if let Some(icon) = app.default_window_icon().cloned() {
         builder = builder.icon(icon);
     }
@@ -1068,8 +1095,20 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Show + focus the main window (settings). Used by tray click/menu.
+fn show_main_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        #[cfg(target_os = "linux")]
+        let _ = w.set_always_on_top(false);
+    }
+}
+
 fn on_tray_event(app: &tauri::AppHandle, id: &str) {
     match id {
+        "tray-open" => show_main_window(app),
         "tray-record" => {
             let busy = app
                 .try_state::<AppState>()
@@ -1110,10 +1149,7 @@ fn on_tray_event(app: &tauri::AppHandle, id: &str) {
             }
         }
         "tray-history" | "tray-settings" => {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            show_main_window(app);
         }
         "tray-quit" => app.exit(0),
         _ => {}
@@ -1361,6 +1397,7 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 str_field("staCwd"),
                 v.get("staContext").and_then(|x| x.as_bool()),
                 v.get("realtimePreview").and_then(|x| x.as_bool()),
+                v.get("autoPaste").and_then(|x| x.as_bool()),
             ) {
                 Ok(()) => ok(serde_json::json!(config::load())),
                 Err(e) => fail(e),
