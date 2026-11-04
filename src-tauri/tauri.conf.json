@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "whisp",
+  "version": "0.1.0",
+  "identifier": "com.whisp.app",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "recorder",
+        "title": "whisp-recorder",
+        "url": "/?window=recorder",
+        "width": 720,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "center": true,
+        "resizable": true,
+        "shadow": false,
+        "focus": true
+      },
+      {
+        "label": "island",
+        "title": "whisp-island",
+        "url": "/?window=island",
+        "width": 720,
+        "height": 64,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "center": true,
+        "resizable": true,
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "main",
+        "title": "whisp",
+        "url": "/?window=main",
+        "width": 1100,
+        "height": 720,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

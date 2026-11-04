@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="whisp logo">
+  <title>whisp</title>
+  <!-- Squircle blanc inspiré du vrai Mochi : visible sur fond sombre ET clair
+       grâce à son contour gris ardoise (contraste sur #f5f5f5) et son remplissage
+       clair (contraste sur #1e1e1e). -->
+  <path d="M32 6 C42 6 46 7.5 49.5 11 C53 14.5 54.5 18.5 54.5 28.5 C54.5 38.5 53 42.5 49.5 46 C46 49.5 42 51 32 51 C22 51 18 49.5 14.5 46 C11 42.5 9.5 38.5 9.5 28.5 C9.5 18.5 11 14.5 14.5 11 C18 7.5 22 6 32 6 Z"
+    fill="#F2F4F8" stroke="#3A4152" stroke-width="3" stroke-linejoin="round"/>
+  <!-- Yeux Mochi (#1A1412) : deux capsules verticales, fidèles au renderer. -->
+  <rect x="21" y="23" width="7" height="10" rx="3.5" fill="#1A1412"/>
+  <rect x="36" y="23" width="7" height="10" rx="3.5" fill="#1A1412"/>
+  <!-- Reflets -->
+  <circle cx="22.8" cy="25.5" r="1.2" fill="#F2F4F8" opacity="0.9"/>
+  <circle cx="37.8" cy="25.5" r="1.2" fill="#F2F4F8" opacity="0.9"/>
+</svg>
