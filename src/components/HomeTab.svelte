@@ -1,11 +1,15 @@
 <script lang="ts">
   import { invoke } from "../lib/tauri";
-  import type { SettingsStore } from "../lib/settings.svelte";
+  import type { SettingsStore, TabId } from "../lib/settings.svelte";
   import StatsTab from "./StatsTab.svelte";
   import ModesTab from "./ModesTab.svelte";
   import VocabTab from "./VocabTab.svelte";
 
-  let { store }: { store: SettingsStore } = $props();
+  let { store, goTab }: { store: SettingsStore; goTab: (t: TabId) => void } = $props();
+
+  function goAgents(): void {
+    goTab("agents");
+  }
 
   function startRecording(): void {
     invoke("start_recording").catch(() => {
@@ -19,6 +23,18 @@
     <h1>Dictée vocale</h1>
     <p class="card-hint">Parlez n'importe où, le texte est collé au curseur. Historique local sur cet appareil.</p>
   </div>
+  {#if store.setupState === "no-llm"}
+    <div class="setup-banner" role="status">
+      <span class="setup-dot" aria-hidden="true"></span>
+      <div class="setup-text">
+        <strong>Voix + raffinage non configurés.</strong>
+        <span>Sans Ollama ni clé Fish, la dictée colle le texte brut (sans ponctuation ni mise en forme).</span>
+      </div>
+      <div class="setup-actions">
+        <button type="button" class="primary" onclick={() => goAgents()}>Configurer</button>
+      </div>
+    </div>
+  {/if}
   <div class="row hero-actions">
     <button type="button" class="primary" onclick={startRecording}>
       Démarrer l'enregistrement
@@ -43,6 +59,42 @@
 <style>
   .hero-actions {
     margin-top: 12px;
+  }
+  .setup-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .setup-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+    animation: setup-pulse 2s infinite ease-in-out;
+  }
+  @keyframes setup-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .setup-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    flex: 1;
+    min-width: 0;
+  }
+  .setup-text span {
+    color: var(--muted);
+  }
+  .setup-actions {
+    flex-shrink: 0;
   }
   .hints {
     display: flex;

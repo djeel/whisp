@@ -75,7 +75,7 @@
 
   <main class="content">
     {#if tab === "home"}
-      <HomeTab {store} />
+      <HomeTab {store} goTab={go} />
     {:else if tab === "stats"}
       <section class="panel">
         <div class="card-head">

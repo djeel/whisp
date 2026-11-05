@@ -159,6 +159,7 @@ export class SettingsStore {
   ollamaModel = $state<string>(migrateStoredOllamaModel(readStored("whisp:ollama-model")));
   ollamaMsg = $state<string | null>(null);
   ollamaBusy = $state(false);
+  ollamaOk = $state<boolean | null>(null);
   inputDevices = $state<string[]>([]);
   inputDevice = $state<string>(readStored("whisp:input-device") ?? "");
   agentName = $state<string>(readStored("whisp:agent") ?? readStored("whisp:sta-agent") ?? "omp");
@@ -179,6 +180,14 @@ export class SettingsStore {
 
   chatModel = $derived(getProviderConf(this.providerConfs, this.chatProvider).model);
   chatBaseUrl = $derived(getProviderConf(this.providerConfs, this.chatProvider).baseUrl);
+  /** Setup voix/LLM : "ok" | "no-llm" (brut seul) | "checking". */
+  setupState = $derived<"ok" | "no-llm" | "checking">(
+    this.ollamaOk === true || this.hasKey === true
+      ? "ok"
+      : this.ollamaOk === false && this.hasKey === false
+        ? "no-llm"
+        : "checking",
+  );
   activeModeEntry = $derived<BackendMode | null>(
     this.backendModes && this.backendModes.length > 0
       ? (this.backendModes.find((m) => m.label.toLowerCase() === this.activeMode.trim().toLowerCase()) ??
@@ -344,6 +353,8 @@ export class SettingsStore {
       .catch(() => {
         if (this.live) this.backendModes = null;
       });
+    // État voix/LLM pour le bandeau setup (silencieux, pas de hint).
+    this.probeOllama();
     invoke<string[]>("list_input_devices")
       .then((ds) => {
         if (this.live && Array.isArray(ds)) this.inputDevices = ds;
@@ -624,12 +635,25 @@ export class SettingsStore {
     invoke<string>("test_ollama", { url: this.ollamaUrl || null })
       .then((out) => {
         this.ollamaMsg = out;
+        this.ollamaOk = /OK/.test(out);
       })
       .catch((e: unknown) => {
         this.ollamaMsg = e instanceof Error ? e.message : String(e);
+        this.ollamaOk = false;
       })
       .finally(() => {
         this.ollamaBusy = false;
+      });
+  }
+
+  /** Test silencieux au mount (bandeau setup) : ne touche pas ollamaMsg. */
+  probeOllama(): void {
+    invoke<string>("test_ollama", { url: this.ollamaUrl || null })
+      .then((out) => {
+        if (this.live) this.ollamaOk = /OK/.test(out);
+      })
+      .catch(() => {
+        if (this.live) this.ollamaOk = false;
       });
   }
 

@@ -70,8 +70,8 @@ uv pip install --python "$FW_DIR/bin/python" faster-whisper 2>&1 | tail -1 || di
 log "4/7 modèle STT small (~500 Mo, rapide)..."
 "$FW_DIR/bin/python" -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8'); print('STT-OK')"
 
-log "5/7 LLM local qwen2.5:3b..."
-ollama pull qwen2.5:3b 2>&1 | tail -1 || log "(ollama pull à relancer : ollama pull qwen2.5:3b)"
+log "5/7 LLM local whisp-nanbeige (raffinage offline)..."
+ollama pull whisp-nanbeige 2>&1 | tail -1 || log "(ollama pull à relancer : ollama pull whisp-nanbeige — sans lui, le raffinage LLM est désactivé, la dictée brute reste collée)"
 
 log "6/7 build (peut durer quelques minutes)..."
 export WHISP_FW_PYTHON="$FW_DIR/bin/python"
@@ -110,4 +110,8 @@ systemctl --user enable --now whisp
 hyprctl reload 2>/dev/null || true
 
 log "OK. $BIN tourne en fond. Alt+Space dans n'importe quelle app pour dicter."
-log "Clé Fish Audio optionnelle : dans whisp > Configuration."
+log ""
+log "Sans Ollama ni clé Fish, la dictée colle le texte brut (sans raffinage)."
+log "  - Recommandé offline : ollama pull whisp-nanbeige"
+log "  - Ou voix cloud : clé Fish Audio dans whisp > Agents & Voix > Voix Fish Audio"
+log "  (console fish.audio → TTS → voix, copier le reference_id + la clé API)."
