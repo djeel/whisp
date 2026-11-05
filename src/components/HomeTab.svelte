@@ -2,6 +2,8 @@
   import { invoke } from "../lib/tauri";
   import type { SettingsStore } from "../lib/settings.svelte";
   import StatsTab from "./StatsTab.svelte";
+  import ModesTab from "./ModesTab.svelte";
+  import VocabTab from "./VocabTab.svelte";
 
   let { store }: { store: SettingsStore } = $props();
 
@@ -28,6 +30,8 @@
   </p>
 </section>
 
+<ModesTab {store} />
+<VocabTab {store} />
 <section class="panel">
   <div class="card-head">
     <h2>Activité</h2>

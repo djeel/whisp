@@ -20,7 +20,7 @@ import {
 } from "./chatProviders";
 import { readJSON, readPref, writeJSON, writePref } from "./prefs";
 
-export type TabId = "home" | "stats" | "modes" | "vocabulary" | "config";
+export type TabId = "home" | "stats" | "config";
 export type ThemePref = "system" | "dark" | "light";
 export type PopupPos = "top-center" | "center" | "bottom-center" | "cursor";
 export type SttModel = "small" | "medium" | "base";
@@ -62,8 +62,6 @@ export interface Prefs {
 export const FLOW_TABS: Array<{ id: TabId; label: string }> = [
   { id: "home", label: "Dictation" },
   { id: "stats", label: "Statistics" },
-  { id: "vocabulary", label: "Dictionary" },
-  { id: "modes", label: "Modes" },
   { id: "config", label: "Settings" },
 ];
 
@@ -124,7 +122,7 @@ export function truncate120(s: string): string {
 /** État Settings complet : 1 seul fetchAppConfig() au mount (single-flight),
  * queueConfig debounce 400 ms + flush explicite, migrations conservées. */
 export class SettingsStore {
-  tab = $state<TabId>(readStored("whisp:tab") === "stats" || readStored("whisp:tab") === "modes" || readStored("whisp:tab") === "vocabulary" || readStored("whisp:tab") === "config" ? (readStored("whisp:tab") as TabId) : "home");
+  tab = $state<TabId>(readStored("whisp:tab") === "stats" || readStored("whisp:tab") === "config" ? (readStored("whisp:tab") as TabId) : "home");
   refreshTick = $state(0);
   vocab = $state<string[]>(readJSON<string[]>("whisp:vocab", []));
   word = $state("");

@@ -1,5 +1,5 @@
 <script module lang="ts">
-  export type FlowTab = "home" | "stats" | "modes" | "vocabulary" | "config";
+  export type FlowTab = "home" | "stats" | "config";
 </script>
 
 <script lang="ts">
@@ -7,12 +7,10 @@
   import AppearanceSection from "../components/AppearanceSection.svelte";
     import GeneralSection from "../components/GeneralSection.svelte";
   import HomeTab from "../components/HomeTab.svelte";
-  import ModesTab from "../components/ModesTab.svelte";
   import ProvidersSection from "../components/ProvidersSection.svelte";
   import ShortcutsSection from "../components/ShortcutsSection.svelte";
   import StatsTab from "../components/StatsTab.svelte";
   import UpdatesSection from "../components/UpdatesSection.svelte";
-  import VocabTab from "../components/VocabTab.svelte";
   import VoiceSection from "../components/VoiceSection.svelte";
   import { SettingsStore, FLOW_TABS, type TabId } from "../lib/settings.svelte";
   import { applyAppearance } from "../lib/accent";
@@ -31,10 +29,7 @@
         return null;
       }
     })();
-    tab =
-      raw === "stats" || raw === "modes" || raw === "vocabulary" || raw === "config"
-        ? raw
-        : "home";
+    tab = raw === "stats" || raw === "config" ? (raw as TabId) : "home";
     void store.init();
   });
   onDestroy(() => {
@@ -90,10 +85,6 @@
         </div>
         <StatsTab />
       </section>
-    {:else if tab === "modes"}
-      <ModesTab {store} />
-    {:else if tab === "vocabulary"}
-      <VocabTab {store} />
     {:else}
       <section class="panel page-head">
         <h1>Settings</h1>
