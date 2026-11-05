@@ -65,6 +65,7 @@ html,
 body {
   margin: 0;
   padding: 0;
+  background: var(--bg-app);
 }
 
 body {
@@ -439,9 +440,7 @@ kbd {
 
 .settings {
   display: flex;
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
   background: var(--bg-app);
 }
 
@@ -515,9 +514,6 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  height: 100vh;
 }
 
 /* Cartes coucou : radius 16px, gap 18px (settings.css) — whisp garde ses
