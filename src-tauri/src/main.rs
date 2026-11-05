@@ -6,11 +6,12 @@ fn main() {
     if args.len() > 1 && args[1] == "toggle" {
         // Ping a running instance over the local socket; exit 0 on delivery.
         // Même chemin que le daemon (XDG_RUNTIME_DIR d'abord, /tmp fallback).
+        // Logique miroir de `socket::control_socket_path` (binaire léger, pas de lib).
         let name = format!("whisp-{}.sock", libc_uid());
         let sock = std::env::var("XDG_RUNTIME_DIR")
             .map(std::path::PathBuf::from)
             .ok()
-            .filter(|d: &std::path::PathBuf| d.is_dir())
+            .filter(|d: &std::path::PathBuf| d.is_absolute() && d.is_dir())
             .map(|d| d.join(&name))
             .unwrap_or(std::env::temp_dir().join(&name));
         use std::io::Write;
@@ -30,11 +31,11 @@ fn main() {
 
 #[cfg(unix)]
 fn libc_uid() -> u32 {
-    // Avoid pulling libc crate: read /proc/self/loginuid fallback to UID env.
-    std::env::var("UID")
-        .ok()
-        .and_then(|u| u.parse().ok())
-        .unwrap_or(1000)
+    // libc dispo via les deps du workspace ; pas de lecture $UID (spoofable).
+    #[allow(unsafe_code)]
+    unsafe {
+        libc::getuid()
+    }
 }
 
 #[cfg(not(unix))]

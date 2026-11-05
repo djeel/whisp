@@ -381,6 +381,8 @@ fn build_capture_stream(
 }
 
 /// Encode 16 kHz mono f32 as 16-bit PCM WAV bytes (for history retention).
+/// Never panics: in-memory writes only fail on OOM, mapped to empty vec
+/// so a corrupt frame never aborts the release binary (panic=abort).
 pub fn encode_wav_16k_mono(pcm: &[f32]) -> Vec<u8> {
     let spec = hound::WavSpec {
         channels: 1,
@@ -389,13 +391,23 @@ pub fn encode_wav_16k_mono(pcm: &[f32]) -> Vec<u8> {
         sample_format: hound::SampleFormat::Int,
     };
     let mut cursor = std::io::Cursor::new(Vec::new());
-    let mut writer = hound::WavWriter::new(&mut cursor, spec).expect("wav writer");
+    let mut writer = match hound::WavWriter::new(&mut cursor, spec) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("[whisp] wav writer init failed: {e}");
+            return Vec::new();
+        }
+    };
     for &s in pcm {
-        writer
-            .write_sample((s.clamp(-1.0, 1.0) * 32767.0) as i16)
-            .expect("wav sample");
+        if let Err(e) = writer.write_sample((s.clamp(-1.0, 1.0) * 32767.0) as i16) {
+            eprintln!("[whisp] wav sample write failed: {e}");
+            return Vec::new();
+        }
     }
-    writer.finalize().expect("wav finalize");
+    if let Err(e) = writer.finalize() {
+        eprintln!("[whisp] wav finalize failed: {e}");
+        return Vec::new();
+    }
     cursor.into_inner()
 }
 

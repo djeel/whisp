@@ -7,3 +7,5 @@ node_modules/
 .omp/
 .coord-agents.md
 .mcp.json
+__pycache__/
+*.pyc

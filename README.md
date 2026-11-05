@@ -21,12 +21,13 @@ voix → STT (Fish cloud si mode cloud + clé, sinon faster-whisper local medium
 ## MCP (pilotage par agent)
 
 ```json
-{"command": "/home/djeel/Projets/whisp/mcp_server.py"}
+{"command": "~/.local/bin/whisp-mcp"}
 ```
 
+Source checkout : `<repo>/mcp_server.py` (voir `.mcp.json.example`).
 12 tools : status/toggle/start/stop/cancel, set_mode, list_modes,
 set_stt (local/cloud_fish_audio par mode), list_mics, get/set_config, history.
-L'app doit tourner (socket `/tmp/whisp-<uid>.sock`).
+L'app doit tourner (socket `$XDG_RUNTIME_DIR/whisp-<uid>.sock`, fallback `/tmp`).
 
 ## Config (`~/.config/whisp/config.json`)
 

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "whisp": {
+      "command": "~/.local/bin/whisp-mcp",
+      "description": "whisp dictation control plane (requires app running). Copy to .mcp.json and adjust path: ~/.local/share/whisp-app/mcp_server.py for source installs."
+    }
+  }
+}

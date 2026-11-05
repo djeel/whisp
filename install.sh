@@ -10,10 +10,29 @@ PREFIX="${WHISP_PREFIX:-$HOME/.local}"
 SRC_DIR="${WHISP_SRC:-$HOME/.local/share/whisp-app}"
 FW_DIR="$HOME/.local/share/whisp/fw"
 BIN="$PREFIX/bin/whisp"
+MCP_BIN="$PREFIX/bin/whisp-mcp"
 SERVICE_NAME="whisp"
 
+log() { printf '\033[1;34m[whisp]\033[0m %s\n' "$*"; }
+die() { printf '\033[1;31m[whisp]\033[0m %s\n' "$*" >&2; exit 1; }
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  echo "Usage: install.sh [--bundle|--check-only]"
+  echo "  --bundle    : binaire précompilé de la dernière release (rapide)"
+  echo "  --check-only: vérifie deps + service sans rien installer"
+  echo "  défaut      : clone + build source (développeurs)"
+  exit 0
+fi
+
+if [ "${1:-}" = "--check-only" ]; then
+  log "check-only : deps + service"
+  for b in "$BIN" ollama wtype wl-copy; do command -v "$b" >/dev/null && echo "OK $b" || echo "MANQUANT $b"; done
+  systemctl --user is-active "$SERVICE_NAME" 2>/dev/null || echo "service $SERVICE_NAME inactif"
+  test -S "${XDG_RUNTIME_DIR:-/tmp}/whisp-$(id -u).sock" && echo "OK socket" || echo "socket absent (app fermée ?)"
+  exit 0
+fi
+
   if [ "${1:-}" = "--bundle" ]; then
-  log() { printf '\033[1;34m[whisp]\033[0m %s\n' "$*"; }
   log "bundle précompilé (dernière release)..."
   command -v curl >/dev/null || { echo "curl requis"; exit 1; }
   TAG="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/djeel/whisp/releases/latest | sed 's#.*/##')"
@@ -52,9 +71,6 @@ SERVICE_NAME="whisp"
   exit 0
  fi
 
-log() { printf '\033[1;34m[whisp]\033[0m %s\n' "$*"; }
-die() { printf '\033[1;31m[whisp]\033[0m %s\n' "$*" >&2; exit 1; }
-
 log "1/7 deps système (sudo requis, une seule popup)..."
 if command -v paru >/dev/null; then AUR=paru; else AUR="pacman -S --needed --noconfirm"; fi
 pkexec bash -c "pacman -S --needed --noconfirm ollama libayatana-appindicator wtype ccache alsa-lib pipewire-jack espeak-ng uv bun nodejs 2>&1 | tail -2 && systemctl enable ollama --now" \
@@ -78,18 +94,34 @@ export WHISP_FW_PYTHON="$FW_DIR/bin/python"
 (cd "$SRC_DIR" && bun install && bun run tauri build)
 install -Dm755 "$SRC_DIR/src-tauri/target/release/whisp" "$BIN"
 
-log "7/7 raccourci Alt+Space (Hyprland)..."
-mkdir -p ~/.config/hypr/hyprland
-if ! grep -q "whisp toggle" ~/.config/hypr/hyprland/keybinds.lua 2>/dev/null; then
-  cat >> ~/.config/hypr/hyprland/keybinds.lua <<EOF
+log "7/8 raccourci Alt+Space (Hyprland, si présent)..."
+if [ -d ~/.config/hypr ]; then
+  if [ -f ~/.config/hypr/hyprland/keybinds.lua ]; then
+    mkdir -p ~/.config/hypr/hyprland
+    if ! grep -q "whisp toggle" ~/.config/hypr/hyprland/keybinds.lua 2>/dev/null; then
+      cat >> ~/.config/hypr/hyprland/keybinds.lua <<EOF
 
 -- Voice dictation (whisp)
 create_bind("ALT + Space", hl.dsp.exec_cmd("$BIN toggle"))
 EOF
+    fi
+  elif [ -f ~/.config/hypr/hyprland.conf ]; then
+    if ! grep -q "whisp toggle" ~/.config/hypr/hyprland.conf 2>/dev/null; then
+      printf "\n# whisp voice dictation\nbind = ALT, Space, exec, $BIN toggle\n" >> ~/.config/hypr/hyprland.conf
+    fi
+  else
+    log "(Hyprland sans fichier connu : ajoute manuellement 'bind = ALT, Space, exec, $BIN toggle')"
+  fi
+  hyprctl reload 2>/dev/null || true
+else
+  log "(pas de ~/.config/hypr : raccourci à configurer dans ton compositor)"
 fi
 systemctl --user enable --now ydotool 2>/dev/null || true
 
-log "8/8 service autostart..."
+log "8/8 bridge MCP (~/.local/bin/whisp-mcp)..."
+install -Dm755 "$SRC_DIR/mcp_server.py" "$MCP_BIN"
+
+log "9/9 service autostart..."
 mkdir -p ~/.config/systemd/user
 cat > ~/.config/systemd/user/whisp.service <<EOF
 [Unit]
