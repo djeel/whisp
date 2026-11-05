@@ -8,8 +8,8 @@
 //!
 //! Playback: decoded bytes are written to a temp file and played with the
 //! first available player (`mpv` → `ffplay` → `paplay`/`aplay` for wav).
-//! STA voice reply (`sta_voice` config): when on, STA dictations are read
-//! back after the agent request is queued (see `maybe_speak_sta`).
+//! Agent voice reply (`agent_voice` config): when on, Agent dictations are read
+//! back after the agent request is queued (see `maybe_speak_agent`).
 
 use std::io::Write;
 use std::time::Duration;
@@ -75,18 +75,37 @@ fn play_mp3(bytes: &[u8]) -> Result<(), String> {
             args.push(&path);
             match std::process::Command::new(argv[0])
                 .args(&args)
-                .output()
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
             {
-                Ok(out) if out.status.success() => {
-                    let _ = std::fs::remove_file(&tmp);
-                    return Ok(());
-                }
-                Ok(out) => {
-                    last_err = format!(
-                        "{}: {}",
-                        argv[0],
-                        String::from_utf8_lossy(&out.stderr).trim()
-                    );
+                Ok(mut child) => {
+                    // Timeout 30 s : un player qui hang ne bloque jamais.
+                    let start = std::time::Instant::now();
+                    loop {
+                        match child.try_wait() {
+                            Ok(Some(status)) if status.success() => {
+                                let _ = std::fs::remove_file(&tmp);
+                                return Ok(());
+                            }
+                            Ok(Some(status)) => {
+                                last_err = format!("{}: exit {status}", argv[0]);
+                                break;
+                            }
+                            Ok(None) if start.elapsed() > std::time::Duration::from_secs(30) => {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                last_err = format!("{}: timeout lecture", argv[0]);
+                                break;
+                            }
+                            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                            Err(e) => {
+                                last_err = format!("{}: {e}", argv[0]);
+                                break;
+                            }
+                        }
+                    }
                 }
                 Err(e) => last_err = format!("{}: {e}", argv[0]),
             }
@@ -118,15 +137,15 @@ pub fn configured_voice() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// STA voice reply enabled?
-pub fn sta_voice_enabled() -> bool {
-    crate::config::load().sta_voice.unwrap_or(false)
+/// Agent voice reply enabled?
+pub fn agent_voice_enabled() -> bool {
+    crate::config::load().agent_voice.unwrap_or(false)
 }
 
-/// Fire-and-forget STA read-back: speaks `text` when `sta_voice` is on.
+/// Fire-and-forget Agent read-back: speaks `text` when `agent_voice` is on.
 /// Never fails the dictation: errors are swallowed.
-pub fn maybe_speak_sta(text: &str) {
-    if !sta_voice_enabled() || text.trim().is_empty() {
+pub fn maybe_speak_agent(text: &str) {
+    if !agent_voice_enabled() || text.trim().is_empty() {
         return;
     }
     let text = text.to_string();
@@ -136,16 +155,99 @@ pub fn maybe_speak_sta(text: &str) {
     });
 }
 
+/// Mode voice : répond à l'utilisateur en vocal. Pipeline : question STT →
+/// LLM chat (provider configuré, défaut Ollama local) → Fish TTS lit la réponse.
+/// Fire-and-forget : la transcription est déjà collée, la réponse arrive après.
+/// Sans voix Fish configurée ou sans LLM joignable : silence + event d'erreur.
+pub fn maybe_speak_voice_reply(question: &str, emit: impl Fn(bool) + Send + 'static) {
+    let q = question.trim().to_string();
+    if q.is_empty() {
+        return;
+    }
+    std::thread::Builder::new()
+        .name("whisp-voice-reply".to_string())
+        .spawn(move || {
+            emit(true);
+            use tauri::Emitter;
+            // 1. Réponse LLM via le chat provider configuré.
+            let provider = crate::config::load()
+                .chat_provider
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "ollama".to_string());
+            let msgs = vec![crate::llm::ChatMessage {
+                role: "user".to_string(),
+                content: q,
+            }];
+            let reply = match crate::llm::chat(&provider, &msgs) {
+                Ok(r) if !r.trim().is_empty() => r,
+                Ok(_) => return,
+                Err(e) => {
+                    eprintln!("[whisp] voice reply LLM: {e}");
+                    return;
+                }
+            };
+            // 2. Lecture vocale (Fish TTS, voix configurée ou défaut).
+            let voice = configured_voice();
+            if voice.is_none() {
+                eprintln!("[whisp] voice reply: aucune voix Fish configurée (Settings → Voix)");
+            }
+            let _ = speak(&reply, voice.as_deref());
+            emit(false);
+        })
+        .ok();
+}
+
+/// Tue la lecture TTS en cours (mpv/ffplay). Appelé par Échap : la réponse
+/// vocale s'arrête net, pas de son qui traîne après la fermeture.
+pub fn kill_playback() {
+    // Ciblé uniquement : le pattern matche nos fichiers /tmp/whisp-tts-*.mp3.
+    // Pas de `pkill -x mpv` : ça tuerait le lecteur vidéo de l'utilisateur.
+    let _ = std::process::Command::new("pkill")
+        .args(["-f", "whisp-tts-.*\\.(mp3|wav)"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Speak `text` through Fish TTS (blocking; the frontend disables Tester).
+/// Speak `text` through Fish TTS. Returns immediately; playback happens in
+/// the background. Errors are emitted as `whisp://tts` events (never blocks
+/// the UI — the old blocking version froze the app when the player hung).
 #[tauri::command]
-pub fn speak_text(text: String, voice: Option<String>) -> Result<(), String> {
+pub fn speak_text(
+    app: tauri::AppHandle,
+    text: String,
+    voice: Option<String>,
+) -> Result<(), String> {
     let v = voice
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .or_else(configured_voice);
-    speak(&text, v.as_deref())
+    if v.is_none() {
+        return Err("Aucune voix configurée : collez un reference_id Fish Audio.".to_string());
+    }
+    std::thread::Builder::new()
+        .name("whisp-tts".to_string())
+        .spawn(move || {
+            use tauri::Emitter;
+            let _ = app.emit("whisp://tts", serde_json::json!({ "state": "playing" }));
+            let r = speak(&text, v.as_deref());
+            match r {
+                Ok(()) => {
+                    let _ = app.emit("whisp://tts", serde_json::json!({ "state": "done" }));
+                }
+                Err(e) => {
+                    let _ = app.emit(
+                        "whisp://tts",
+                        serde_json::json!({ "state": "error", "message": e }),
+                    );
+                }
+            }
+        })
+        .map_err(|e| format!("spawn tts: {e}"))?;
+    Ok(())
 }

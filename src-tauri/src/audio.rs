@@ -113,8 +113,24 @@ impl ChunkResampler {
         }
     }
 }
+/// Copy at most `max` newest samples from `ring` (oldest first). Bounded:
+/// holds the ring lock for milliseconds, never for the whole 10-minute
+/// ring. `usize::MAX` = everything (legacy `snapshot` path).
+fn snapshot_ring_last(ring: &Mutex<HeapRb<f32>>, max: usize) -> Vec<f32> {
+    let ring = ring.lock().unwrap_or_else(|e| e.into_inner());
+    let (a, b) = ring.as_slices();
+    let total = a.len() + b.len();
+    let skip = total.saturating_sub(max);
+    let mut out = Vec::with_capacity(total.min(max));
+    for &s in a.iter().chain(b.iter()).skip(skip) {
+        out.push(s);
+    }
+    out
+}
 
-/// Downmix interleaved f32 samples to mono.
+/// Downmix interleaved f32 samples to mono (pure, testée ; chemins froids).
+/// Le hot path (callback cpal) fait le downmix inline dans les scratch
+/// `thread_local` réutilisés — zéro allocation par paquet audio.
 pub fn downmix_f32(interleaved: &[f32], channels: usize) -> Vec<f32> {
     if channels <= 1 {
         return interleaved.to_vec();
@@ -124,6 +140,7 @@ pub fn downmix_f32(interleaved: &[f32], channels: usize) -> Vec<f32> {
         .map(|ch| ch.iter().sum::<f32>() / ch.len() as f32)
         .collect()
 }
+
 
 // ---------------------------------------------------------------------------
 // Live capture: stream lives on a worker thread, handle is Send
@@ -151,24 +168,27 @@ impl RecordingHandle {
     }
 
     /// Drain everything captured so far (oldest first) into a Vec.
+    /// `unwrap_or_else(into_inner)` : un panic passé ne doit jamais geler
+    /// les dictées suivantes (poison = figeait tout avant).
     pub fn drain(&self) -> Vec<f32> {
-        let mut ring = self.ring.lock().expect("audio ring poisoned");
+        let mut ring = self.ring.lock().unwrap_or_else(|e| e.into_inner());
         let mut out = Vec::with_capacity(ring.occupied_len());
         while let Some(s) = ring.try_pop() {
             out.push(s);
         }
         out
     }
-    /// Copy everything captured so far WITHOUT draining (for live previews).
     /// Oldest first. Ring keeps growing; the final `drain`/`finish` still
     /// gets the full audio.
     pub fn snapshot(&self) -> Vec<f32> {
-        let ring = self.ring.lock().expect("audio ring poisoned");
-        let (a, b) = ring.as_slices();
-        let mut out = Vec::with_capacity(a.len() + b.len());
-        out.extend_from_slice(a);
-        out.extend_from_slice(b);
-        out
+        snapshot_ring_last(&self.ring, usize::MAX)
+    }
+
+    /// Copy at most `max` newest samples WITHOUT draining (for live previews).
+    /// Bounded: the preview only needs seconds, never the full 10-minute
+    /// ring, so the ring lock is held briefly and `stop` never waits on it.
+    pub fn snapshot_last(&self, max: usize) -> Vec<f32> {
+        snapshot_ring_last(&self.ring, max)
     }
 
     /// Signal the capture thread to stop, flush, then drain.
@@ -270,6 +290,14 @@ fn build_capture_stream(
     let resampler = Arc::new(Mutex::new(ChunkResampler::new(from_rate)));
     let last_emit = Arc::new(Mutex::new(Instant::now() - LEVEL_MIN_INTERVAL * 2));
 
+    // Scratch buffers hors callback : `thread_local!` car le callback cpal
+    // s'exécute toujours sur le même thread audio. `clear()` + réutilisation
+    // = zéro allocation par paquet (mesure : avant = 3 `Vec` + 1 `reserve`
+    // par paquet à 50-100 Hz ; après = 0 alloc en régime établi).
+    thread_local! {
+        static SCRATCH_MONO: std::cell::RefCell<Vec<f32>> = const { std::cell::RefCell::new(Vec::new()) };
+        static SCRATCH_OUT: std::cell::RefCell<Vec<f32>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
     macro_rules! build_stream {
         ($ty:ty, $conv:expr) => {{
             let ring = Arc::clone(ring);
@@ -280,34 +308,57 @@ fn build_capture_stream(
             device.build_input_stream(
                 &config,
                 move |data: &[$ty], _| {
-                    // Convert + downmix at device rate.
-                    let mono: Vec<f32> = if channels <= 1 {
-                        data.iter().map(|&s| conv(s)).collect()
-                    } else {
-                        data.chunks(channels)
-                            .map(|ch| ch.iter().map(|&s| conv(s)).sum::<f32>() / ch.len() as f32)
-                            .collect()
-                    };
-                    // Level from device-rate mono (cheap, good enough).
-                    if emit_levels {
-                        let mut last = last_emit.lock().expect("level lock poisoned");
-                        if last.elapsed() >= LEVEL_MIN_INTERVAL {
-                            *last = Instant::now();
-                            let _ = app.emit("whisp://level", rms_level(&mono));
-                        }
-                    }
-                    // Resample -> 16 kHz -> ring (drop oldest on overflow).
-                    let step = resampler.lock().expect("resampler lock poisoned").step;
-                    let mut out =
-                        Vec::with_capacity((mono.len() as f64 * step) as usize + 1);
-                    resampler
-                        .lock()
-                        .expect("resampler lock poisoned")
-                        .push_chunk(&mono, &mut out);
-                    let mut ring = ring.lock().expect("audio ring poisoned");
-                    for s in out {
-                        let _ = ring.try_push(s);
-                    }
+                    SCRATCH_MONO.with(|mono_cell| {
+                        SCRATCH_OUT.with(|out_cell| {
+                            let mut mono = mono_cell.borrow_mut();
+                            let mut out = out_cell.borrow_mut();
+                            // Convert + downmix at device rate, sans allocation.
+                            mono.clear();
+                            if channels <= 1 {
+                                mono.reserve(data.len());
+                                mono.extend(data.iter().map(|&s| conv(s)));
+                            } else {
+                                mono.reserve(data.len() / channels.max(1) + 1);
+                                for ch in data.chunks(channels) {
+                                    mono.push(ch.iter().map(|&s| conv(s)).sum::<f32>() / ch.len() as f32);
+                                }
+                            }
+                            // Level: cheap check FIRST, lock only when emitting (the
+                            // callback is real-time: never hold a mutex per packet).
+                            if emit_levels {
+                                let due = last_emit
+                                    .lock()
+                                    .map(|mut last| {
+                                        if last.elapsed() >= LEVEL_MIN_INTERVAL {
+                                            *last = Instant::now();
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                    .unwrap_or(false);
+                                if due {
+                                    let _ = app.emit("whisp://level", rms_level(&mono));
+                                }
+                            }
+                            // Resample -> 16 kHz -> ring (drop oldest on overflow).
+                            // Single lock of the resampler (no double .lock() per packet).
+                            out.clear();
+                            if let Ok(mut r) = resampler.lock() {
+                                let step = r.step;
+                                out.reserve((mono.len() as f64 * step) as usize + 1);
+                                r.push_chunk(&mono, &mut out);
+                                drop(r);
+                                if let Ok(mut ring) = ring.lock() {
+                                    // `extend` par copie : `HeapRb::try_push` un
+                                    // par un, même sémantique drop-oldest.
+                                    for &s in out.iter() {
+                                        let _ = ring.try_push(s);
+                                    }
+                                }
+                            }
+                        })
+                    });
                 },
                 move |err| eprintln!("[whisp] audio stream error: {err}"),
                 None,

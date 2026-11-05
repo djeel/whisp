@@ -107,7 +107,10 @@ pub fn insert(
         ],
     )
     .map_err(|e| format!("insert history: {e}"))?;
-    Ok(HistoryEntry { audio_path, ..entry })
+    Ok(HistoryEntry {
+        audio_path,
+        ..entry
+    })
 }
 
 pub fn list(limit: u32) -> Result<Vec<HistoryEntry>, String> {

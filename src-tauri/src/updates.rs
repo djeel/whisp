@@ -67,10 +67,7 @@ fn check_inner() -> UpdateInfo {
         .get(API_URL)
         .send()
         .map_err(|e| format!("GitHub injoignable: {e}"))
-        .and_then(|r| {
-            r.error_for_status()
-                .map_err(|e| format!("GitHub: {e}"))
-        })
+        .and_then(|r| r.error_for_status().map_err(|e| format!("GitHub: {e}")))
         .and_then(|r| r.json().map_err(|e| format!("réponse GitHub: {e}")));
     match resp {
         Err(message) => UpdateInfo {
@@ -91,7 +88,8 @@ fn check_inner() -> UpdateInfo {
                 .and_then(|u| u.as_str())
                 .map(|s| s.to_string())
                 .or_else(|| {
-                    (!tag.is_empty()).then(|| format!("https://github.com/{REPO}/releases/tag/{tag}"))
+                    (!tag.is_empty())
+                        .then(|| format!("https://github.com/{REPO}/releases/tag/{tag}"))
                 });
             if tag.is_empty() {
                 return UpdateInfo {

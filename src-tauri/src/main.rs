@@ -5,7 +5,14 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && args[1] == "toggle" {
         // Ping a running instance over the local socket; exit 0 on delivery.
-        let sock = std::env::temp_dir().join(format!("whisp-{}.sock", libc_uid()));
+        // Même chemin que le daemon (XDG_RUNTIME_DIR d'abord, /tmp fallback).
+        let name = format!("whisp-{}.sock", libc_uid());
+        let sock = std::env::var("XDG_RUNTIME_DIR")
+            .map(std::path::PathBuf::from)
+            .ok()
+            .filter(|d: &std::path::PathBuf| d.is_dir())
+            .map(|d| d.join(&name))
+            .unwrap_or(std::env::temp_dir().join(&name));
         use std::io::Write;
         match std::os::unix::net::UnixStream::connect(&sock) {
             Ok(mut s) => {

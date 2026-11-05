@@ -23,19 +23,33 @@ pub struct AppConfig {
     pub language: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_device: Option<String>,
+    // Note: pre-rename keys are migrated in `load()` below (one-version compat).
+    /// Preset agent invoqué dans la session tmux `whisp-agent` :
+    /// `omp` (défaut) | `claude` | `codex` | `custom`. Tout autre id retombe
+    /// sur `omp` ; un preset dont le binaire est absent retombe aussi sur
+    /// `omp` (jamais de terminal qui meurt à l'ouverture).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sta_agent: Option<String>,
+    pub agent: Option<String>,
+    /// Template shell custom quand `agent = "custom"` — `{prompt}` est
+    /// remplacé par la demande quotée shell. Vide = preset intégré.
+    /// Ex. `mon-agent --task {prompt} --yes`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sta_command: Option<String>,
+    pub agent_command: Option<String>,
+    /// Dossier de travail de la session agent (`~/` étendu, défaut
+    /// `~/Projets`). La dictée y `cd` avant chaque injection, même si le
+    /// shell de la session s'est déplacé ailleurs entre deux demandes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sta_cwd: Option<String>,
+    pub agent_cwd: Option<String>,
+    /// Contexte dossier + capture d'écran joints au prompt (`Contexte:
+    /// dossier <nom> (<chemin>). [Capture d'écran: <fichier>.] Demande:
+    /// …`, demande tronquée à ~4000 car). On par défaut ; off = transcript brut.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sta_context: Option<bool>,
+    pub agent_context: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realtime_preview: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_paste: Option<bool>,
-    /// Pills actives (Settings → Pills) : ids parmi `dictee`, `sta`, `agents`, `chat`.
+    /// Pills actives (Settings → Pills) : ids parmi `dictee`, `agent`, `agents`, `chat`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_pills: Option<Vec<String>>,
     /// Adresse du serveur Ollama local (`Modèles locaux`).
@@ -53,12 +67,16 @@ pub struct AppConfig {
     /// Base URL OpenAI-compatible (DeepSeek/Qwen/Moonshot/serveur custom).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_base_url: Option<String>,
+    /// Style Claude (ton préréglé, ex. Concise) : injecté en `system`
+    /// pour le provider `claude` (chat + raffinage) et Anthropic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_style: Option<String>,
     /// Voix Fish pour `speak_text` (WhispSettings2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fish_voice: Option<String>,
-    /// Voix STA on/off (WhispSettings2).
+    /// Voix Agent on/off (WhispSettings2) : lit la demande à voix haute (Fish TTS) après injection dans tmux. Off par défaut.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sta_voice: Option<bool>,
+    pub agent_voice: Option<bool>,
     /// Taille popup S/M/L (WhispSettings2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup_size: Option<String>,
@@ -68,28 +86,69 @@ pub struct AppConfig {
     /// Mochi popup on/off (WhispSettings2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup_mochi: Option<bool>,
+    /// Source de l'accent du recorder (`Apparence`) : `theme` (défaut,
+    /// suit le clair/sombre) | `custom` (`accent_custom`) | `caelestia`
+    /// (scheme Caelestia, suit le fond d'écran).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent_source: Option<String>,
+    /// Accent personnalisé `#rrggbb` (quand `accent_source = "custom"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent_custom: Option<String>,
+    /// Position mémorisée de la popup "x,y" logiques (drag utilisateur).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup_xy: Option<String>,
 }
-
 fn config_path() -> std::path::PathBuf {
     dirs::config_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp")).join(".config"))
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join(".config")
+        })
         .join("whisp/config.json")
 }
 
+/// Verrou global config : `set()` = load + merge + save atomique.
+/// Sans lui, deux `set_config` concurrents (mount Settings + dropdown)
+/// lisent la même version et le second écrase le premier (lost update) ;
+/// pire, deux `write` simultanés = fichier tronqué = carte coupée au reload.
+static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn load() -> AppConfig {
-    std::fs::read_to_string(config_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    let _guard = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    load_unlocked()
 }
 
-pub fn save(cfg: &AppConfig) -> Result<(), String> {
-    let path = config_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("config dir: {e}"))?;
-    }
-    let json = serde_json::to_string_pretty(cfg).map_err(|e| format!("config encode: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("config write: {e}"))
+fn load_unlocked() -> AppConfig {
+    let text = std::fs::read_to_string(config_path()).unwrap_or_default();
+    let raw: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    let mut cfg: AppConfig = serde_json::from_value(raw.clone()).unwrap_or_default();
+    // Compat: pre-rename keys apply only when the new key is absent (one version).
+    if cfg.agent.is_none() {
+        cfg.agent = raw
+            .get("staAgent")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+    } // Compat sta
+    if cfg.agent_command.is_none() {
+        cfg.agent_command = raw
+            .get("staCommand")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+    } // Compat sta
+    if cfg.agent_cwd.is_none() {
+        cfg.agent_cwd = raw
+            .get("staCwd")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+    } // Compat sta
+    if cfg.agent_context.is_none() {
+        cfg.agent_context = raw.get("staContext").and_then(|x| x.as_bool());
+    } // Compat sta
+    if cfg.agent_voice.is_none() {
+        cfg.agent_voice = raw.get("staVoice").and_then(|x| x.as_bool());
+    } // Compat sta
+    cfg
 }
 
 /// Merge a partial update into the stored file. `stt_model` is validated
@@ -100,10 +159,10 @@ pub fn set(
     theme: Option<String>,
     language: Option<String>,
     input_device: Option<String>,
-    sta_agent: Option<String>,
-    sta_command: Option<String>,
-    sta_cwd: Option<String>,
-    sta_context: Option<bool>,
+    agent: Option<String>,
+    agent_command: Option<String>,
+    agent_cwd: Option<String>,
+    agent_context: Option<bool>,
     realtime_preview: Option<bool>,
     auto_paste: Option<bool>,
     active_pills: Option<Vec<String>>,
@@ -112,18 +171,39 @@ pub fn set(
     chat_provider: Option<String>,
     chat_model: Option<String>,
     chat_base_url: Option<String>,
+    claude_style: Option<String>,
     fish_voice: Option<String>,
-    sta_voice: Option<bool>,
+    agent_voice: Option<bool>,
     popup_size: Option<String>,
     card_opacity: Option<f64>,
     popup_mochi: Option<bool>,
+    popup_xy: Option<String>,
+    accent_source: Option<String>,
+    accent_custom: Option<String>,
 ) -> Result<(), String> {
     if let Some(m) = &stt_model {
         if !matches!(m.as_str(), "small" | "medium" | "base") {
             return Err(format!("unknown stt_model '{m}' (small|medium|base)"));
         }
     }
-    let mut cfg = load();
+    if let Some(s) = &accent_source {
+        if !matches!(s.as_str(), "theme" | "custom" | "caelestia") {
+            return Err(format!(
+                "unknown accent_source '{s}' (theme|custom|caelestia)"
+            ));
+        }
+    }
+    if let Some(c) = &accent_custom {
+        let ok =
+            c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|ch| ch.is_ascii_hexdigit());
+        if !ok {
+            return Err(format!("unknown accent_custom '{c}' (#rrggbb)"));
+        }
+    }
+    // Section critique : load + merge + save sous le même verrou.
+    // Évite lost-update et fichier tronqué (deux write simultanés).
+    let _guard = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cfg = load_unlocked();
     if popup_pos.is_some() {
         cfg.popup_pos = popup_pos;
     }
@@ -144,22 +224,22 @@ pub fn set(
     if input_device.is_some() {
         cfg.input_device = input_device;
     }
-    if let Some(a) = &sta_agent {
+    if let Some(a) = &agent {
         if !matches!(a.as_str(), "omp" | "claude" | "codex" | "custom") {
-            return Err(format!("unknown sta_agent '{a}' (omp|claude|codex|custom)"));
+            return Err(format!("unknown agent '{a}' (omp|claude|codex|custom)"));
         }
     }
-    if sta_agent.is_some() {
-        cfg.sta_agent = sta_agent;
+    if agent.is_some() {
+        cfg.agent = agent;
     }
-    if sta_command.is_some() {
-        cfg.sta_command = sta_command;
+    if agent_command.is_some() {
+        cfg.agent_command = agent_command;
     }
-    if sta_cwd.is_some() {
-        cfg.sta_cwd = sta_cwd;
+    if agent_cwd.is_some() {
+        cfg.agent_cwd = agent_cwd;
     }
-    if sta_context.is_some() {
-        cfg.sta_context = sta_context;
+    if agent_context.is_some() {
+        cfg.agent_context = agent_context;
     }
     if realtime_preview.is_some() {
         cfg.realtime_preview = realtime_preview;
@@ -178,7 +258,15 @@ pub fn set(
     }
     if let Some(p) = &chat_provider {
         const KNOWN: &[&str] = &[
-            "ollama", "anthropic", "openai", "google", "openrouter", "deepseek", "qwen", "moonshot",
+            "ollama",
+            "anthropic",
+            "claude",
+            "openai",
+            "google",
+            "openrouter",
+            "deepseek",
+            "qwen",
+            "moonshot",
             "custom",
         ];
         if !KNOWN.contains(&p.as_str()) {
@@ -194,12 +282,15 @@ pub fn set(
     if chat_base_url.is_some() {
         cfg.chat_base_url = chat_base_url;
     }
+    if claude_style.is_some() {
+        cfg.claude_style = claude_style;
+    }
     // Champs WhispSettings2 : sans validation, assignés si présents.
     if fish_voice.is_some() {
         cfg.fish_voice = fish_voice;
     }
-    if sta_voice.is_some() {
-        cfg.sta_voice = sta_voice;
+    if agent_voice.is_some() {
+        cfg.agent_voice = agent_voice;
     }
     if popup_size.is_some() {
         cfg.popup_size = popup_size;
@@ -210,7 +301,25 @@ pub fn set(
     if popup_mochi.is_some() {
         cfg.popup_mochi = popup_mochi;
     }
-    save(&cfg)
+    if popup_xy.is_some() {
+        cfg.popup_xy = popup_xy;
+    }
+    if accent_source.is_some() {
+        cfg.accent_source = accent_source;
+    }
+    if accent_custom.is_some() {
+        cfg.accent_custom = accent_custom;
+    }
+    // Écriture atomique : tmp + rename (jamais de JSON à moitié écrit,
+    // même en cas de kill pendant le write).
+    let path = config_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("config dir: {e}"))?;
+    }
+    let json = serde_json::to_string_pretty(&cfg).map_err(|e| format!("config encode: {e}"))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json).map_err(|e| format!("config write: {e}"))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("config rename: {e}"))
 }
 
 /// Auto-paste the final text at the cursor (Ctrl+V); on by default.
@@ -219,29 +328,37 @@ pub fn auto_paste() -> bool {
     load().auto_paste.unwrap_or(true)
 }
 
+/// Position mémorisée "x,y" (drag utilisateur), None si jamais draggée.
+pub fn popup_xy() -> Option<String> {
+    load().popup_xy.filter(|s| !s.trim().is_empty())
+}
+
 /// Live partial transcription during recording; on by default.
 pub fn realtime_preview() -> bool {
     load().realtime_preview.unwrap_or(true)
 }
 
-/// STA agent id; default `omp`.
-pub fn sta_agent_id() -> String {
-    match load().sta_agent.as_deref() {
+/// Agent id; default `omp`.
+pub fn agent_id() -> String {
+    match load().agent.as_deref() {
         Some(a @ ("omp" | "claude" | "codex" | "custom")) => a.to_string(),
         _ => "omp".to_string(),
     }
 }
 
-/// Shell command template for STA. `{prompt}` is replaced by the dictated
+/// Shell command template for the Agent mode. `{prompt}` is replaced by the dictated
 /// request. Empty = built-in preset for the agent.
-pub fn sta_command_template() -> String {
-    load().sta_command.filter(|s| !s.trim().is_empty()).unwrap_or_default()
+pub fn agent_command_template() -> String {
+    load()
+        .agent_command
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_default()
 }
 
-/// Default working dir for the STA agent terminal (`sta_cwd` setting,
+/// Default working dir for the Agent terminal (`agent_cwd` setting,
 /// `~/Projets` when unset). `~/` prefixes are expanded.
-pub fn sta_cwd_default() -> String {
-    let raw = load().sta_cwd.filter(|s| !s.trim().is_empty());
+pub fn agent_cwd_default() -> String {
+    let raw = load().agent_cwd.filter(|s| !s.trim().is_empty());
     let expand = |s: String| {
         if s.starts_with("~/") {
             match dirs::home_dir() {
@@ -260,9 +377,9 @@ pub fn sta_cwd_default() -> String {
     }
 }
 
-/// Screen+folder context joined to the STA prompt; on by default.
-pub fn sta_context_enabled() -> bool {
-    load().sta_context.unwrap_or(true)
+/// Screen+folder context joined to the Agent prompt; on by default.
+pub fn agent_context_enabled() -> bool {
+    load().agent_context.unwrap_or(true)
 }
 
 /// Preferred capture device name (cpal name); None = system default.
@@ -291,7 +408,7 @@ pub fn stt_model_name() -> String {
 pub fn active_pills() -> Vec<String> {
     let all = vec![
         "dictee".to_string(),
-        "sta".to_string(),
+        "agent".to_string(),
         "agents".to_string(),
         "chat".to_string(),
     ];
@@ -301,7 +418,11 @@ pub fn active_pills() -> Vec<String> {
                 .into_iter()
                 .filter(|p| all.iter().any(|a| a == p))
                 .collect();
-            if kept.is_empty() { all } else { kept }
+            if kept.is_empty() {
+                all
+            } else {
+                kept
+            }
         }
         None => all,
     }
@@ -320,5 +441,142 @@ pub fn ollama_model() -> String {
     load()
         .ollama_model
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "qwen2.5:3b".to_string())
+        .unwrap_or_else(|| "whisp-nanbeige".to_string())
+}
+
+/// Source de l'accent recorder ; défaut `theme`.
+pub fn accent_source_name() -> String {
+    match load().accent_source.as_deref() {
+        Some(s @ ("theme" | "custom" | "caelestia")) => s.to_string(),
+        _ => "theme".to_string(),
+    }
+}
+
+/// Accent personnalisé `#rrggbb` ; défaut neutre (bouton Stop actuel).
+pub fn accent_custom_hex() -> String {
+    match load().accent_custom.as_deref() {
+        Some(c)
+            if c.len() == 7
+                && c.starts_with('#')
+                && c[1..].chars().all(|ch| ch.is_ascii_hexdigit()) =>
+        {
+            c.to_string()
+        }
+        _ => "#f59e0b".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_DIR_SEQ: AtomicU64 = AtomicU64::new(0);
+    /// `std::env::set_var` est global au process (tests en parallèle) :
+    /// sérialise toute isolation `XDG_CONFIG_HOME`, sinon deux tests
+    /// déplacent le fichier config l'un sous l'autre (flaky).
+    static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Isole le fichier config réel : `dirs::config_dir()` suit `XDG_CONFIG_HOME`
+    /// sur Linux, donc chaque test pointe vers un tmpdir jetable.
+    /// Raison : sans ça, `cargo test` écrirait dans `~/.config/whisp/`.
+    fn with_isolated_config(f: impl FnOnce()) {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let id = TEST_DIR_SEQ.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("whisp-cfg-test-{}-{}", std::process::id(), id));
+        let _ = std::fs::create_dir_all(&dir);
+        let prev = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", &dir);
+        f();
+        match prev {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `set` prend 26 params positionnels (même ordre que la struct).
+    /// Helpers : un seul champ `Some`, le reste `None` — comptage vérifiable
+    /// ligne à ligne (12 + 12 + 2).
+    fn set_popup_pos(v: String) -> Result<(), String> {
+        set(Some(v), None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None)
+    }
+    fn set_theme(v: String) -> Result<(), String> {
+        set(None, None, Some(v), None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None)
+    }
+    fn set_language_fr() -> Result<(), String> {
+        set(None, None, None, Some("fr".to_string()), None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None)
+    }
+    fn set_agent_cwd(v: String) -> Result<(), String> {
+        set(None, None, None, None, None, None, None, Some(v), None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None)
+    }
+    fn set_accent(source: Option<&str>, custom: Option<&str>) -> Result<(), String> {
+        set(None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None,
+            source.map(|s| s.to_string()),
+            custom.map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn accent_validation_rejects_bad_values() {
+        // `set` valide AVANT le lock et avant tout IO : aucun fichier touché
+        // quand la valeur est rejetée (test sûr, sans isolation).
+        assert!(set_accent(Some("nope"), None).is_err());
+        assert!(set_accent(Some("custom"), Some("#zzzzzz")).is_err());
+        assert!(set_accent(Some("custom"), Some("a9cae8")).is_err()); // `#` requis
+        assert!(set_accent(Some("custom"), Some("#a9cae8ff")).is_err()); // 6 hex, pas 8
+    }
+
+    #[test]
+    fn accent_validation_accepts_good_hex() {
+        // Le cas valide écrit : isolé pour ne pas toucher la vraie config.
+        with_isolated_config(|| {
+            assert!(set_accent(Some("custom"), Some("#a9cae8")).is_ok());
+            assert_eq!(accent_custom_hex(), "#a9cae8");
+            assert_eq!(accent_source_name(), "custom");
+        });
+    }
+
+    #[test]
+    fn concurrent_partial_sets_do_not_lose_updates() {
+        // Lost-update : 8 threads écrivent chacun un champ disjoint via
+        // load+merge+save sous `CONFIG_LOCK`. Sans le verrou, le dernier
+        // `write` écraserait les 7 autres ; avec, chaque champ survit.
+        with_isolated_config(|| {
+            let _ = std::fs::remove_file(config_path());
+            let handles: Vec<_> = (0..8).map(|i| {
+                std::thread::spawn(move || {
+                    let v = format!("v{i}");
+                    // Chaque thread ne touche qu'un champ : merge disjoint.
+                    let r = match i % 4 {
+                        0 => set_popup_pos(v),
+                        1 => set_theme(v),
+                        2 => set_language_fr(),
+                        _ => set_agent_cwd(v),
+                    };
+                    assert!(r.is_ok(), "set thread {i}: {r:?}");
+                })
+            }).collect();
+            for h in handles { h.join().expect("set thread panicked"); }
+            // Fichier jamais tronqué : JSON valide après 8 writes concurrents
+            // (tmp+rename : pas de demi-fichier observable).
+            let raw = std::fs::read_to_string(config_path()).expect("config file exists");
+            let val: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON, never truncated");
+            assert!(val.is_object());
+            let cfg = load();
+            // Chaque famille disjointe a survécu au merge : aucun lost update.
+            assert!(cfg.popup_pos.as_deref().is_some_and(|s| s.starts_with('v')), "popup_pos: {:?}", cfg.popup_pos);
+            assert!(cfg.theme.as_deref().is_some_and(|s| s.starts_with('v')), "theme: {:?}", cfg.theme);
+            assert_eq!(cfg.language.as_deref(), Some("fr"));
+            assert!(cfg.agent_cwd.as_deref().is_some_and(|s| s.starts_with('v')), "agent_cwd: {:?}", cfg.agent_cwd);
+        });
+    }
 }

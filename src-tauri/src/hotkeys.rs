@@ -22,18 +22,12 @@ pub fn toggle_shortcut() -> tauri_plugin_global_shortcut::Shortcut {
 
 pub fn push_to_talk_shortcut() -> tauri_plugin_global_shortcut::Shortcut {
     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
-    Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::ALT),
-        Code::Space,
-    )
+    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space)
 }
 
 pub fn cycle_mode_shortcut() -> tauri_plugin_global_shortcut::Shortcut {
     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
-    Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::ALT),
-        Code::KeyM,
-    )
+    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyM)
 }
 
 /// Map a triggered shortcut + press state to an action.

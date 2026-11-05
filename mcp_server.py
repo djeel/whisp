@@ -26,7 +26,16 @@ import socket
 import sys
 import tempfile
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-SOCK = os.path.join(tempfile.gettempdir(), f"whisp-{os.getuid() if hasattr(os, 'getuid') else 1000}.sock")
+
+def _sock_path() -> str:
+    # $XDG_RUNTIME_DIR d'abord (0600 implicite), fallback /tmp prédictible.
+    run = os.environ.get("XDG_RUNTIME_DIR", "")
+    name = f"whisp-{os.getuid() if hasattr(os, 'getuid') else 1000}.sock"
+    if run and os.path.isdir(run):
+        return os.path.join(run, name)
+    return os.path.join(tempfile.gettempdir(), name)
+
+SOCK = _sock_path()
 
 TOOLS = [
     {"name": "whisp_status", "description": "Recording state (recording bool, active mode). Use before/after toggle.",
@@ -47,12 +56,14 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "whisp_get_config", "description": "App config: sttModel, language, inputDevice, theme, popupPos.",
      "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "whisp_history", "description": "Recent dictations with raw transcript + refined text.",
+    {"name": "whisp_history", "description": "Recent dictations with raw transcript + refined text (opt-in, contenu sensible).",
      "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "default": 5}}}},
-    {"name": "whisp_set_config", "description": "Update app config. Any subset: popupPos, sttModel, theme, language, inputDevice (cpal name or empty for default), staAgent, staCommand, staCwd, staContext, realtimePreview. Returns new config.",
-     "inputSchema": {"type": "object", "properties": {"popupPos": {"type": "string"}, "sttModel": {"type": "string"}, "theme": {"type": "string"}, "language": {"type": "string"}, "inputDevice": {"type": "string"}, "staAgent": {"type": "string"}, "staCommand": {"type": "string"}, "staCwd": {"type": "string"}, "staContext": {"type": "boolean"}, "realtimePreview": {"type": "boolean"}}}},
+    {"name": "whisp_set_config", "description": "Update app config. Whitelist sûre : popupPos, sttModel, theme, language, inputDevice, agent, agentContext, realtimePreview. agentCommand/agentCwd = UI uniquement.",
+     "inputSchema": {"type": "object", "properties": {"popupPos": {"type": "string"}, "sttModel": {"type": "string"}, "theme": {"type": "string"}, "language": {"type": "string"}, "inputDevice": {"type": "string"}, "agent": {"type": "string"}, "agentContext": {"type": "boolean"}, "realtimePreview": {"type": "boolean"}}}},
     {"name": "whisp_set_stt", "description": "Set a mode's transcription engine: stt local (offline) or cloud_fish_audio (Fish cloud, fast). Persists as custom mode.",
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}, "stt": {"type": "string"}}, "required": ["id", "stt"]}},
+    {"name": "whisp_chat", "description": "Chat via le provider configuré (claude = abonnement OAuth + Style, défaut). Style appliqué côté backend.",
+     "inputSchema": {"type": "object", "properties": {"message": {"type": "string"}, "provider": {"type": "string", "default": "claude"}}, "required": ["message"]}},
 ]
 
 
@@ -69,12 +80,16 @@ def sock_cmd(payload: dict) -> dict:
         f.write(json.dumps(payload) + "\n")
         f.flush()
         line = f.readline()
-        s.close()
         if not line:
             return {"ok": False, "error": "empty reply from whisp app"}
         return json.loads(line)
     except (OSError, ValueError) as e:
         return {"ok": False, "error": f"socket error: {e}"}
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
 
 
 def tool_text(result: dict) -> dict:
@@ -85,8 +100,13 @@ def handle(req: dict):
     mid = req.get("id")
     method = req.get("method")
     params = req.get("params", {})
+    # MCP envoie `arguments` (pas `args`).
+    args = params.get("arguments", params.get("args", {})) or {}
 
     def reply(result=None, error=None):
+        # Notifications (pas d'id) : jamais de réponse.
+        if mid is None:
+            return
         out = {"jsonrpc": "2.0", "id": mid}
         if error is not None:
             out["error"] = error
@@ -96,16 +116,19 @@ def handle(req: dict):
         sys.stdout.flush()
 
     if method == "initialize":
-        reply({"protocolVersion": "2024-11-05",
+        # Renvoyer la version du client, pas une version en dur.
+        client_ver = params.get("protocolVersion", "2024-11-05")
+        reply({"protocolVersion": client_ver,
                "capabilities": {"tools": {}},
                "serverInfo": {"name": "whisp", "version": "0.1.0"}})
-    elif method == "notifications/initialized":
-        pass  # no reply
+    elif method == "ping":
+        reply({})
+    elif method and method.startswith("notifications/"):
+        pass  # notifications : pas de réponse, jamais d'erreur
     elif method == "tools/list":
         reply({"tools": TOOLS})
     elif method == "tools/call":
         name = params.get("name", "")
-        args = params.get("args", {}) or {}
         mapping = {
             "whisp_status": ({"cmd": "status"}, None),
             "whisp_toggle": ({"cmd": "toggle"}, None),
@@ -116,18 +139,29 @@ def handle(req: dict):
             "whisp_list_modes": ({"cmd": "list_modes"}, None),
             "whisp_list_mics": ({"cmd": "list_mics"}, None),
             "whisp_get_config": ({"cmd": "get_config"}, None),
-            "whisp_set_config": ({"cmd": "set_config", **{k: v for k, v in args.items() if k in ("popupPos", "sttModel", "theme", "language", "inputDevice", "staAgent", "staCommand", "staCwd", "staContext", "realtimePreview")}}, None),
+            # Agent retiré de la whitelist MCP : agentCommand/agentCwd = exécution
+            # de commande arbitraire via prompt injection. UI uniquement.
+            "whisp_set_config": ({"cmd": "set_config", **{k: v for k, v in args.items() if k in ("popupPos", "sttModel", "theme", "language", "inputDevice", "agent", "agentContext", "realtimePreview", "chatProvider", "chatModel", "claudeStyle")}}, None),
             "whisp_set_stt": ({"cmd": "set_stt", "id": args.get("id", ""), "stt": args.get("stt", "")}, None),
             "whisp_history": ({"cmd": "history", "limit": args.get("limit", 5)}, None),
+            "whisp_chat": ({"cmd": "chat", "provider": args.get("provider", "claude") or "claude",
+                            "messages": [{"role": "user", "content": args.get("message", "")}]}, None),
         }
         if name not in mapping:
             reply(error={"code": -32602, "message": f"unknown tool '{name}'"})
             return
         payload, _ = mapping[name]
-        reply(tool_text(sock_cmd(payload)))
+        res = sock_cmd(payload)
+        # isError quand le backend répond ok:false (sinon l'agent croit que ça a marché).
+        if isinstance(res, dict) and res.get("ok") is False:
+            reply({"content": [{"type": "text", "text": json.dumps(res, ensure_ascii=False)}], "isError": True})
+        else:
+            reply(tool_text(res))
     else:
+        # Sans id (notification inconnue) : silence, pas d'erreur.
+        if mid is None:
+            return
         reply(error={"code": -32601, "message": f"unknown method '{method}'"})
-
 
 def main() -> None:
     for line in sys.stdin:

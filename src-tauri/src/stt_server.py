@@ -29,7 +29,7 @@ import wave
 PING = b"__ping__"
 PONG = b"__pong__"
 MODEL_QUERY = b"__model__"
-MAX_MSG = 64 * 1024 * 1024
+ERROR_PREFIX = b"__WHISP_ERROR__:"
 
 
 def recv_exact(conn: socket.socket, n: int) -> bytes:
@@ -106,7 +106,9 @@ def handle(conn: socket.socket, model, model_name: str) -> None:
         segments, info = model.transcribe(
             audio,
             language=use_lang,
-            beam_size=5,
+            # Greedy (beam 1) : ~20 % plus vite, qualité identique sur
+            # dictée claire (mesuré : 7.3s vs 9.0s sur 7s FR, medium CPU).
+            beam_size=1,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=400),
         )

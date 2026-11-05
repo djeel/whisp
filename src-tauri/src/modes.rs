@@ -20,7 +20,7 @@ pub enum SttKind {
 pub enum LlmKind {
     /// No refinement: raw transcript is final (lowest latency).
     None,
-    /// Local Ollama (`qwen2.5:3b`).
+    /// Local Ollama (`whisp-nanbeige`, Nanbeige 4.2-3B).
     OllamaLocal,
     /// Anthropic API via keyring key.
     CloudAnthropic,
@@ -64,7 +64,7 @@ impl Mode {
     }
 }
 
-/// The six builtin presets.
+/// The four builtin presets.
 pub fn builtin_modes() -> Vec<Mode> {
     vec![
         Mode::builtin(
@@ -73,15 +73,6 @@ pub fn builtin_modes() -> Vec<Mode> {
             "message",
             "Rewrite the transcript as a short, clear chat message in the SAME language as the transcript (never translate). Fix grammar and punctuation, keep the tone casual, no greeting, no quotes. Reply with the message only.",
             SttKind::CloudFishAudio,
-            LlmKind::OllamaLocal,
-            "auto",
-        ),
-        Mode::builtin(
-            "super",
-            "Super",
-            "super",
-            "Rewrite the transcript into polished, high-quality prose in the SAME language as the transcript (never translate). Fix grammar, structure and flow while preserving meaning. Reply with the rewritten text only.",
-            SttKind::Local,
             LlmKind::OllamaLocal,
             "auto",
         ),
@@ -95,15 +86,6 @@ pub fn builtin_modes() -> Vec<Mode> {
             "auto",
         ),
         Mode::builtin(
-            "note",
-            "Note",
-            "note",
-            "Turn the transcript into a concise note in the SAME language as the transcript (never translate): keep every fact, drop filler words, use short bullet-style lines when it helps. Reply with the note only.",
-            SttKind::Local,
-            LlmKind::None,
-            "auto",
-        ),
-        Mode::builtin(
             "voice",
             "Voice",
             "voice",
@@ -113,18 +95,9 @@ pub fn builtin_modes() -> Vec<Mode> {
             "auto",
         ),
         Mode::builtin(
-            "meeting",
-            "Meeting",
-            "meeting",
-            "The transcript is a multi-speaker meeting. Produce short minutes: decisions, action items (with owner when named), key points. Language: same as transcript. Reply with the minutes only.",
-            SttKind::CloudFishAudio,
-            LlmKind::OllamaLocal,
-            "auto",
-        ),
-        Mode::builtin(
-            "sta",
-            "STA",
-            "sta",
+            "agent",
+            "Agent",
+            "agent",
             "Speech to agent: keep the raw request verbatim, only add punctuation. The launcher attaches folder/screenshot context itself; keep the request untouched. Reply with the request only.",
             SttKind::Local,
             LlmKind::None,
@@ -172,7 +145,10 @@ fn save_customs(modes: &[Mode]) -> Result<(), String> {
 
 /// All modes: builtins overlaid by customs (custom wins on id clash).
 pub fn list_modes() -> Vec<Mode> {
-    let mut map: HashMap<String, Mode> = builtin_modes().into_iter().map(|m| (m.id.clone(), m)).collect();
+    let mut map: HashMap<String, Mode> = builtin_modes()
+        .into_iter()
+        .map(|m| (m.id.clone(), m))
+        .collect();
     for m in load_customs() {
         map.insert(m.id.clone(), m);
     }
@@ -214,7 +190,11 @@ fn validate_mode(mode: &Mode) -> Result<(), String> {
     if mode.id.trim().is_empty() {
         return Err("mode id is empty".to_string());
     }
-    if mode.id.chars().any(|c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')) {
+    if mode
+        .id
+        .chars()
+        .any(|c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    {
         return Err("mode id must be [a-zA-Z0-9_-]".to_string());
     }
     if mode.label.trim().is_empty() {
@@ -240,9 +220,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn six_builtins_present() {
+    fn four_builtins_present() {
         let ids: Vec<String> = builtin_modes().into_iter().map(|m| m.id).collect();
-        for want in ["message", "super", "mail", "note", "voice", "meeting"] {
+        assert_eq!(ids.len(), 4);
+        for want in ["message", "mail", "voice", "agent"] {
             assert!(ids.contains(&want.to_string()), "missing {want}");
         }
     }

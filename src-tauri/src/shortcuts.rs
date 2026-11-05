@@ -33,7 +33,7 @@ pub fn all_shortcuts() -> Vec<ShortcutInfo> {
             id: "cycle-mode".to_string(),
             label: "Changer de mode".to_string(),
             keys: "Ctrl + Alt + M".to_string(),
-            description: "Cycle Message → Super → Mail → Note → Voice → Meeting".to_string(),
+            description: "Cycle Message → Mail → Voice → Agent".to_string(),
         },
         ShortcutInfo {
             id: "cancel".to_string(),
