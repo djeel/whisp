@@ -47,14 +47,16 @@ jobs:
       - name: Frontend deps
         run: bun install --frozen-lockfile
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@stable
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "whisp ${{ github.ref_name }}"
-          releaseBody: "Voir le changelog."
-          releaseDraft: false
-          prerelease: false
+           tagName: ${{ github.ref_name }}
+           releaseName: "whisp ${{ github.ref_name }}"
+           releaseBody: "Voir le changelog."
+           releaseDraft: false
+           prerelease: false
+          includeUpdaterJson: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
