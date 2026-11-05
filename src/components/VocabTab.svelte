@@ -23,14 +23,9 @@
     />
     <button type="submit" class="primary">Ajouter</button>
   </form>
-  <div class="row">
-    <button type="button" class="ghost" onclick={() => store.applyVocabToActiveMode()}>
-      Appliquer au mode actif{store.activeModeEntry ? ` (${store.activeModeEntry.label})` : ""}
-    </button>
-    {#if store.vocabMsg}
-      <span class="field-hint" role="status">{store.vocabMsg}</span>
-    {/if}
-  </div>
+  {#if store.vocabMsg}
+    <p class="field-hint" role="status">{store.vocabMsg}</p>
+  {/if}
   {#if store.vocab.length === 0}
     <div class="empty">
       <svg class="empty-art" width="48" height="32" viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
