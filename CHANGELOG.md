@@ -1,6 +1,22 @@
-# Changelog
+ # Changelog
+ 
+## v0.1.2 — QoL + Flatpak
 
-## v0.1.1 — Refonte Svelte + stabilisation
+### Nouveau
+- Raccourcis configurables : Agents & Voix → Raccourcis (cliquer, appuyer, sauvegardé + réenregistré à chaud, sans redémarrage).
+- Bandeau onboarding Dictation quand ni Ollama ni clé Fish (guide vers Agents & Voix).
+- Packaging Flatpak : manifest, métadonnées AppStream, job CI (bundle uploadé sur les releases).
+- Page Chat entièrement refaite (header identité modèle, bulles, état vide hero).
+
+### Correctifs
+- Recorder déplaçable partout (drag natif vérifié + fallback manuel vérifié, XY persisté).
+- Waveform : contraste garanti (parse robuste + garde luminance, fini le noir-sur-noir).
+- Toggles : knob blanc qui glisse (animation `translateX` restaurée), plus de double outline sur les inputs.
+- Chat input/bouton même hauteur ; carte Session agent polie ; Dictation restructurée (hero + hints).
+- install.sh --bundle : vérif taille anti-tronçon, extraction AppImage sans FUSE, repli .deb.
+- Updater : `latest.json` signé publié (clé minisign dédiée, `createUpdaterArtifacts`).
+
+ ## v0.1.1 — Refonte Svelte + stabilisation
 
 ### Frontend : React → Svelte 5
 - Port complet vers Svelte 5 (runes `$state`/`$derived`/`$effect`), zéro React restant.
