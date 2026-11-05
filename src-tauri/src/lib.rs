@@ -16,141 +16,22 @@ mod hotkeys;
 mod llm;
 mod modes;
 mod shortcuts;
+mod socket;
+mod state;
 mod stt;
 mod updates;
 mod voice;
 
-use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::llm::Llm as _;
+use crate::state::{current_mode_id, emit_mode_changed, emit_state, hide_recorder, show_recorder};
 use crate::stt::Stt as _;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
 
-pub struct AppState {
-    session: Mutex<SessionState>,
-    mode_id: Mutex<String>,
-    agent_last: Mutex<Option<String>>,
-    /// True while `do_finish` transcription runs (STT+LLM, tens of seconds).
-    /// Lets a concurrent `stop` answer `{busy:true}` instead of blocking.
-    transcribing: std::sync::atomic::AtomicBool,
-    /// True while an Agent request runs (`omp -p` dans tmux, minutes).
-    /// Une seule requête à la fois : sinon sorties entrelacées + CPU 100 %.
-    agent_running: std::sync::atomic::AtomicBool,
-    /// Échap pendant la réponse vocale : le thread TTS s'arrête avant de jouer.
-    voice_cancel: std::sync::atomic::AtomicBool,
-}
-
-/// Single-lock session lifecycle: Idle | Starting | Recording(handle).
-/// `do_start`/`do_finish`/`do_cancel` all transition under this one lock,
-/// so two concurrent toggles can never both spawn a capture.
-enum SessionState {
-    Idle,
-    /// `do_start` holds this from the `spawn_session` call until the handle
-    /// is stored; any peer seeing it refuses with "already recording".
-    Starting,
-    Recording(audio::RecordingHandle),
-}
-
-impl AppState {
-    fn new() -> Self {
-        Self {
-            session: Mutex::new(SessionState::Idle),
-            mode_id: Mutex::new("message".to_string()),
-            agent_last: Mutex::new(None),
-            transcribing: std::sync::atomic::AtomicBool::new(false),
-            agent_running: std::sync::atomic::AtomicBool::new(false),
-            voice_cancel: std::sync::atomic::AtomicBool::new(false),
-        }
-    }
-}
-#[derive(Debug, Clone, Serialize)]
-pub struct StatePayload {
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mode: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RecStatus {
-    Idle,
-    Recording,
-    Processing,
-    Done,
-    Error,
-}
-
-impl RecStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            RecStatus::Idle => "idle",
-            RecStatus::Recording => "recording",
-            RecStatus::Processing => "processing",
-            RecStatus::Done => "done",
-            RecStatus::Error => "error",
-        }
-    }
-}
-
-fn current_mode_id(state: &State<AppState>) -> String {
-    state.mode_id.lock().expect("mode lock poisoned").clone()
-}
-
-fn emit_state(app: &tauri::AppHandle, status: RecStatus, message: Option<String>) {
-    let mode = app
-        .try_state::<AppState>()
-        .map(|s: State<AppState>| current_mode_id(&s));
-    let _ = app.emit(
-        "whisp://state",
-        StatePayload {
-            status: status.as_str().to_string(),
-            message,
-            mode,
-        },
-    );
-}
-/// Cycle/set the mode then emit the mode change while preserving the current
-/// pipeline status: cycling mid-dictation must NOT reset the popup to idle,
-/// and cycling during transcription must NOT drop `processing` either.
-fn emit_mode_changed(app: &tauri::AppHandle, state: &State<'_, AppState>, next: &modes::Mode) {
-    *state.mode_id.lock().expect("mode lock poisoned") = next.id.clone();
-    let transcribing = state.transcribing.load(std::sync::atomic::Ordering::SeqCst);
-    let recording = state
-        .session
-        .lock()
-        .map(|g| matches!(*g, SessionState::Recording(_) | SessionState::Starting))
-        .unwrap_or(false);
-    let st = if transcribing {
-        RecStatus::Processing
-    } else if recording {
-        RecStatus::Recording
-    } else {
-        RecStatus::Idle
-    };
-    emit_state(app, st, Some(format!("mode: {}", next.id)));
-}
-
-fn show_recorder(app: &tauri::AppHandle) {
-    // show SANS focus : la popup ne vole jamais le curseur. Le paste Ctrl+V
-    // part donc dans l'app cible, pas besoin de hide/show autour du collage
-    // (c'est ce hide/show qui fermait + recentrait la popup à chaque validation).
-    if let Some(w) = app.get_webview_window("recorder") {
-        let _ = w.show();
-        // Hyprland ignore les configure (size/pos) d'une fenêtre jamais
-        // focusée : le focus autorise les resizes suivants (fit_window).
-        let _ = w.set_focus();
-    }
-}
-
-fn hide_recorder(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("recorder") {
-        let _ = w.hide();
-    }
-}
+// Re-export: le reste du crate (et les tests) garde `crate::AppState`.
+pub use crate::state::{AppState, RecStatus, SessionState, StatePayload};
 
 // ---------------------------------------------------------------------------
 // Recording pipeline
@@ -169,7 +50,7 @@ fn do_start(app: &tauri::AppHandle) -> Result<(), String> {
     // Starting|Recording and gets a clean refusal instead of a second capture.
     {
         let state = app.state::<AppState>();
-        let mut guard = state.session.lock().expect("session lock poisoned");
+        let mut guard = state.session_lock();
         match *guard {
             SessionState::Idle => *guard = SessionState::Starting,
             SessionState::Starting | SessionState::Recording(_) => {
@@ -181,7 +62,7 @@ fn do_start(app: &tauri::AppHandle) -> Result<(), String> {
     // `status`/`cancel` stay responsive; the state reads Starting meanwhile.
     let spawned = audio::spawn_session(app.clone(), true);
     let state = app.state::<AppState>();
-    let mut guard = state.session.lock().expect("session lock poisoned");
+    let mut guard = state.session_lock();
     match spawned {
         Ok(session) => {
             *guard = SessionState::Recording(session);
@@ -1238,7 +1119,7 @@ fn recording_status(app: tauri::AppHandle, state: State<'_, AppState>) -> String
     if state.transcribing.load(std::sync::atomic::Ordering::SeqCst) {
         return RecStatus::Processing.as_str().to_string();
     }
-    match *state.session.lock().expect("session lock poisoned") {
+    match *state.session.lock().unwrap_or_else(|e| e.into_inner()) {
         SessionState::Recording(_) | SessionState::Starting => {
             RecStatus::Recording.as_str().to_string()
         }
@@ -1767,7 +1648,7 @@ fn on_tray_event(app: &tauri::AppHandle, id: &str) {
                 .try_state::<AppState>()
                 .map(|s: State<'_, AppState>| {
                     matches!(
-                        *s.session.lock().expect("session lock poisoned"),
+                        *s.session.lock().unwrap_or_else(|e| e.into_inner()),
                         SessionState::Recording(_) | SessionState::Starting
                     )
                 })
@@ -1779,8 +1660,9 @@ fn on_tray_event(app: &tauri::AppHandle, id: &str) {
                         .try_state::<AppState>()
                         .map(|s: State<'_, AppState>| current_mode_id(&s))
                         .unwrap_or_else(|| "message".to_string());
-                    let mode = modes::get_mode(&mode_id)
-                        .unwrap_or_else(|| modes::builtin_modes().into_iter().next().unwrap());
+                    let mode = modes::get_mode(&mode_id).unwrap_or_else(|| {
+                        modes::builtin_modes().into_iter().next().unwrap_or_else(|| modes::Mode { id: "message".to_string(), label: "Message".to_string(), preset: "message".to_string(), prompt: String::new(), stt: crate::modes::SttKind::Local, llm: crate::modes::LlmKind::OllamaLocal, language: "fr".to_string(), vocabulary: Vec::new() })
+                    });
                     if let Err(e) = do_finish(app.clone(), mode).await {
                         emit_state(&app, RecStatus::Error, Some(e));
                     }
@@ -1793,7 +1675,7 @@ fn on_tray_event(app: &tauri::AppHandle, id: &str) {
             if let Some(state) = app.try_state::<AppState>() {
                 let all = modes::list_modes();
                 if !all.is_empty() {
-                    let cur = state.mode_id.lock().expect("mode lock poisoned").clone();
+                    let cur = state.mode_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
                     let idx = all.iter().position(|m| m.id == cur).unwrap_or(0);
                     let next = all[(idx + 1) % all.len()].clone();
                     emit_mode_changed(app, &state, &next);
@@ -1880,25 +1762,17 @@ fn spawn_toggle_socket(app: tauri::AppHandle) {
         .name("whisp-toggle-sock".to_string())
         .spawn(move || {
             use std::os::unix::net::UnixListener;
-            // $XDG_RUNTIME_DIR d'abord (0600 implicite) : /tmp prédictible = risque.
-            let sock_name = format!(
-                "whisp-{}.sock",
-                std::env::var("UID")
-                    .ok()
-                    .and_then(|u| u.parse::<u32>().ok())
-                    .unwrap_or(1000)
-            );
-            let path = std::env::var("XDG_RUNTIME_DIR")
-                .map(std::path::PathBuf::from)
-                .ok()
-                .filter(|d: &std::path::PathBuf| d.is_dir())
-                .map(|d| d.join(&sock_name))
-                .unwrap_or(std::env::temp_dir().join(&sock_name));
-            let _ = std::fs::remove_file(&path);
+            // Chemin canonique partagé (socket.rs): XDG_RUNTIME_DIR puis /tmp.
+            let path = crate::socket::control_socket_path();
+            // Anti-symlink: ne suit jamais un lien dans /tmp.
+            if !crate::socket::safe_remove_socket(&path) {
+                eprintln!("[whisp] socket busy, skip: {}", path.display());
+                return;
+            }
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                // Chmod 0600 : seul l'utilisateur parle au control plane.
+                // Pré-crée 0600 : seul l'utilisateur parle au control plane.
                 let _ = std::fs::OpenOptions::new()
                     .write(true)
                     .create(true)
@@ -1911,8 +1785,12 @@ fn spawn_toggle_socket(app: tauri::AppHandle) {
                 let _ = std::fs::remove_file(&path);
             }
             let listener = match UnixListener::bind(&path) {
-                Ok(l) => l,
-                Err(_) => {
+                Ok(l) => {
+                    crate::socket::enforce_600(&path);
+                    l
+                }
+                Err(e) => {
+                    eprintln!("[whisp] socket bind failed {}: {e}", path.display());
                     return;
                 }
             };
@@ -2059,7 +1937,7 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
             match modes::get_mode(&id) {
                 Some(m) => {
                     if let Some(st) = app.try_state::<AppState>() {
-                        *st.mode_id.lock().expect("mode lock poisoned") = m.id.clone();
+                        *st.mode_id.lock().unwrap_or_else(|e| e.into_inner()) = m.id.clone();
                     }
                     emit_state(app, RecStatus::Idle, Some(format!("mode: {}", m.id)));
                     ok(serde_json::json!({"mode": m.id}))
@@ -2261,7 +2139,7 @@ pub fn run() {
             show_window,
         ])
         .build(tauri::generate_context!())
-        .expect("error while running whisp")
+        .unwrap_or_else(|e| { eprintln!("[whisp] tauri build failed: {e}"); std::process::exit(1); })
         .run(|_app, event| {
             if matches!(
                 event,

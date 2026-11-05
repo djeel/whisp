@@ -2,7 +2,7 @@
 """whisp MCP server (stdio) — control plane for the whisp dictation app.
 
 Speaks MCP over stdio (JSON-RPC, no external deps) and forwards to the
-running whisp instance over its unix control socket (~/.cache or /tmp).
+running whisp instance over its unix control socket ($XDG_RUNTIME_DIR or /tmp fallback).
 
 Tools:
   whisp_status      recording state + active mode
@@ -16,8 +16,9 @@ Tools:
   whisp_get_config  app config (stt model, language, mic, theme...)
   whisp_history     recent dictations (transcript + refined)
 
-Install (Claude Code / omp): add to MCP servers as:
-  {"command": "/home/djeel/Projets/whisp/mcp_server.py"}
+Install (Claude Code / omp): copy `.mcp.json.example` to `.mcp.json` and adjust the path,
+  or add manually: {"command": "~/.local/bin/whisp-mcp"}
+  (source checkout: <repo>/mcp_server.py).
 Requires the whisp app running (`bun run tauri dev` or the release binary).
 """
 import json

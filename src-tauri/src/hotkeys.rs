@@ -36,7 +36,14 @@ fn configured_or_default(raw: Option<String>, def: &str) -> tauri_plugin_global_
             Err(e) => eprintln!("[whisp] hotkey ignoré ({e}), défaut {def}"),
         }
     }
-    parse_shortcut(def).expect("default shortcut must parse")
+    match parse_shortcut(def) {
+        Ok(sc) => sc,
+        Err(e) => {
+            eprintln!("[whisp] default hotkey invalide '{def}': {e}, repli alt+Space");
+            // Dernier recours : valeur connue valide, sinon touche simple.
+            parse_shortcut("alt+Space").unwrap_or_else(|_| "Space".parse().unwrap())
+        }
+    }
 }
 
 pub fn toggle_shortcut() -> tauri_plugin_global_shortcut::Shortcut {
