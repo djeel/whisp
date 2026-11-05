@@ -71,30 +71,44 @@ fi
   exit 0
  fi
 
-log "1/7 deps système (sudo requis, une seule popup)..."
-if command -v paru >/dev/null; then AUR=paru; else AUR="pacman -S --needed --noconfirm"; fi
-pkexec bash -c "pacman -S --needed --noconfirm ollama libayatana-appindicator wtype ccache alsa-lib pipewire-jack espeak-ng uv bun nodejs 2>&1 | tail -2 && systemctl enable ollama --now" \
-  || die "installe les deps à la main : ollama libayatana-appindicator wtype uv bun nodejs"
+log "1/9 deps système (sudo requis, une seule popup)..."
+install_deps() {
+  if command -v pacman >/dev/null; then
+    if command -v paru >/dev/null; then AUR=paru; else AUR="pacman -S --needed --noconfirm"; fi
+    pkexec bash -c "pacman -S --needed --noconfirm ollama libayatana-appindicator wtype ccache alsa-lib pipewire-jack espeak-ng uv bun nodejs 2>&1 | tail -2 && systemctl enable ollama --now" \
+      || die "installe les deps à la main : ollama libayatana-appindicator wtype uv bun nodejs"
+  elif command -v apt-get >/dev/null; then
+    log "(apt détecté : build depuis source, paquets Tauri uniquement)"
+    sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev curl build-essential 2>&1 | tail -2 \
+      || die "apt install échoué, installe à la main (voir CI release.yml)"
+  elif command -v dnf >/dev/null; then
+    sudo dnf install -y webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel patchelf alsa-lib-devel openssl-devel curl gcc 2>&1 | tail -2 \
+      || die "dnf install échoué"
+  else
+    die "distro non reconnue (ni pacman ni apt ni dnf) : installe ollama wtype uv bun nodejs à la main"
+  fi
+}
+install_deps
 
-log "2/7 sources..."
+log "2/9 sources..."
 if [ -d "$SRC_DIR/.git" ]; then git -C "$SRC_DIR" pull --ff-only; else git clone --depth 1 "$REPO" "$SRC_DIR"; fi
 
-log "3/7 venv faster-whisper (CPU int8, fiable)..."
+log "3/9 venv faster-whisper (CPU int8, fiable)..."
 uv venv "$FW_DIR" --python 3.14 >/dev/null 2>&1 || true
 uv pip install --python "$FW_DIR/bin/python" faster-whisper 2>&1 | tail -1 || die "venv faster-whisper"
 
-log "4/7 modèle STT small (~500 Mo, rapide)..."
+log "4/9 modèle STT small (~500 Mo, rapide)..."
 "$FW_DIR/bin/python" -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8'); print('STT-OK')"
 
-log "5/7 LLM local whisp-nanbeige (raffinage offline)..."
+log "5/9 LLM local whisp-nanbeige (raffinage offline)..."
 ollama pull whisp-nanbeige 2>&1 | tail -1 || log "(ollama pull à relancer : ollama pull whisp-nanbeige — sans lui, le raffinage LLM est désactivé, la dictée brute reste collée)"
 
-log "6/7 build (peut durer quelques minutes)..."
+log "6/9 build (peut durer quelques minutes)..."
 export WHISP_FW_PYTHON="$FW_DIR/bin/python"
 (cd "$SRC_DIR" && bun install && bun run tauri build)
 install -Dm755 "$SRC_DIR/src-tauri/target/release/whisp" "$BIN"
 
-log "7/8 raccourci Alt+Space (Hyprland, si présent)..."
+log "7/9 raccourci Alt+Space (Hyprland, si présent)..."
 if [ -d ~/.config/hypr ]; then
   if [ -f ~/.config/hypr/hyprland/keybinds.lua ]; then
     mkdir -p ~/.config/hypr/hyprland
@@ -118,7 +132,7 @@ else
 fi
 systemctl --user enable --now ydotool 2>/dev/null || true
 
-log "8/8 bridge MCP (~/.local/bin/whisp-mcp)..."
+log "8/9 bridge MCP (~/.local/bin/whisp-mcp)..."
 install -Dm755 "$SRC_DIR/mcp_server.py" "$MCP_BIN"
 
 log "9/9 service autostart..."
