@@ -229,8 +229,8 @@
     border: 1px dashed var(--line);
     border-radius: var(--radius-panel);
   }
-  /* Champ + bouton alignés sur la même ligne de base. */
+  /* Champ + bouton : même hauteur, étirés sur la ligne. */
   .chat-input {
-    align-items: center;
+    align-items: stretch;
   }
 </style>

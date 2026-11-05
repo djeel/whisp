@@ -585,9 +585,10 @@ kbd {
 .primary {
   background: var(--accent);
   color: var(--accent-text);
-  border: none;
+  border: 1px solid transparent;
   border-radius: 10px;
-  padding: 9px 16px;
+  padding: 8px 16px;
+  line-height: 1.4;
   font-weight: 600;
   cursor: pointer;
   transition: filter 0.15s ease;
@@ -638,14 +639,16 @@ textarea {
   min-width: 0;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
-input[type="text"],
-input[type="password"],
-input:not([type]),
-textarea {
-  cursor: text;
-  resize: vertical;
-  min-height: 64px;
+ input[type="text"],
+ input[type="password"],
+ input:not([type]),
+ textarea {
+   cursor: text;
 }
+textarea {
+   resize: vertical;
+   min-height: 64px;
+ }
 
 
 
@@ -792,7 +795,7 @@ div.check-row {
   border-color: var(--accent);
 }
 
- .switch-knob {
+.switch-knob {
    position: absolute;
    top: 2px;
    left: 2px;
@@ -803,9 +806,13 @@ div.check-row {
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   transition: transform 150ms ease;
- }
+}
+ 
+.switch.on .switch-knob {
+  transform: translateX(18px);
+}
 
-/* Switch whisp 40x22px AA conservé (coucou = 36x20px — écart signalé). */
+ /* Switch whisp 40x22px AA conservé (coucou = 36x20px — écart signalé). */
 /* Raccourcis (copié de coucou settings.css : .subhead/.shortcut-list/.keycap/.tag). */
 .shortcut-list {
   display: flex;
@@ -1107,16 +1114,18 @@ input[type="range"] {
 .agent-badge {
   font-size: 12px;
   font-weight: 600;
-  padding: 2px 10px;
+  padding: 3px 12px;
   border-radius: 999px;
   border: 1px solid var(--line);
   color: var(--muted);
+  background: transparent;
   white-space: nowrap;
 }
 
 .agent-badge.on {
   color: var(--green);
   border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
 }
 
 .agent-rows {
@@ -1135,7 +1144,7 @@ input[type="range"] {
 
 .agent-row dt {
   flex-shrink: 0;
-  width: 104px;
+  min-width: 96px;
   color: var(--muted);
 }
 
@@ -1143,10 +1152,13 @@ input[type="range"] {
   margin: 0;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-actions {
-  margin-top: 0;
+  margin-top: 4px;
 }
 
 /* Contrastes AA : durcir le gris moyen sur fond clair */

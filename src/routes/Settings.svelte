@@ -54,9 +54,6 @@
     tab = next;
     store.goTab(next);
   }
-  function goConfig(next: FlowTab): void {
-    go(next);
-  }
 </script>
 
 <div class="settings">
@@ -85,7 +82,7 @@
 
   <main class="content">
     {#if tab === "home"}
-      <HomeTab {store} {goConfig} />
+      <HomeTab {store} />
     {:else if tab === "stats"}
       <section class="panel">
         <div class="card-head">

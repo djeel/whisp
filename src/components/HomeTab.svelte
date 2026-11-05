@@ -2,9 +2,8 @@
   import { invoke } from "../lib/tauri";
   import type { SettingsStore } from "../lib/settings.svelte";
   import StatsTab from "./StatsTab.svelte";
-  import type { FlowTab } from "../routes/Settings.svelte";
 
-  let { store, goConfig }: { store: SettingsStore; goConfig: (t: FlowTab) => void } = $props();
+  let { store }: { store: SettingsStore } = $props();
 
   function startRecording(): void {
     invoke("start_recording").catch(() => {
@@ -13,43 +12,40 @@
   }
 </script>
 
-<section class="panel page-head">
-  <h1>Hello</h1>
-  <p class="card-hint">Maintenez Alt+Espace n'importe où, parlez, relâchez : c'est collé.</p>
-  <div class="row">
+<section class="panel hero">
+  <div class="card-head">
+    <h1>Dictée vocale</h1>
+    <p class="card-hint">Parlez n'importe où, le texte est collé au curseur. Historique local sur cet appareil.</p>
+  </div>
+  <div class="row hero-actions">
     <button type="button" class="primary" onclick={startRecording}>
-      <span aria-hidden="true">● </span>Démarrer l'enregistrement
+      Démarrer l'enregistrement
     </button>
   </div>
-
+  <p class="hints">
+    <span>Stop <kbd>Alt + Espace</kbd></span>
+    <span>Cancel <kbd>Échap</kbd></span>
+  </p>
 </section>
-<div class="home-grid">
-  <section class="panel">
-    <div class="card-head">
-      <h2>Dictée vocale</h2>
-      <p class="card-hint">Parlez n'importe où, le texte est collé au curseur. Historique local sur cet appareil.</p>
-    </div>
-    <div class="empty">
-      <p class="muted">Alt+Espace pour dicter, Échap pour annuler.</p>
-    </div>
-  </section>
-  <div class="home-side">
-    <section class="panel home-stats">
-      <div class="card-head">
-        <h2>Activité</h2>
-        <p class="card-hint">Votre activité de dictée, calculée en local.</p>
-      </div>
-      <StatsTab refreshKey={store.refreshTick} />
-    </section>
-    <section class="panel agent-teaser">
-      <h2>The Notetaker</h2>
-      <p class="card-hint">Votre agent lancé avec la dictée comme demande.</p>
-      <button type="button" class="ghost teaser-link" onclick={() => goConfig("config")}>Ouvrir l'agent →</button>
-    </section>
+
+<section class="panel">
+  <div class="card-head">
+    <h2>Activité</h2>
+    <p class="card-hint">Votre activité de dictée, calculée en local.</p>
   </div>
-</div>
+  <StatsTab refreshKey={store.refreshTick} />
+</section>
+
 <style>
-  .teaser-link {
-    align-self: flex-start;
+  .hero-actions {
+    margin-top: 12px;
+  }
+  .hints {
+    display: flex;
+    gap: 18px;
+    margin: 12px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+    flex-wrap: wrap;
   }
 </style>
