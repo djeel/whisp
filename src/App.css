@@ -477,7 +477,9 @@ kbd {
 
 .settings {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   background: var(--bg-app);
 }
 
@@ -573,11 +575,16 @@ kbd {
 .content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   padding: 24px;
+  padding-bottom: 64px;
   max-width: 880px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  height: 100vh;
 }
 
 /* Cartes coucou : radius 16px, gap 18px (settings.css) — whisp garde ses
@@ -684,22 +691,33 @@ kbd {
 input[type="text"],
 input[type="password"],
 input:not([type]),
+textarea,
 select {
   appearance: none;
   -webkit-appearance: none;
   background-color: var(--bg-input);
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239a9a9a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 9px 32px 9px 12px;
+  padding: 9px 12px;
   color: var(--text);
   font: inherit;
   font-size: 14px;
   flex: 1;
-  cursor: pointer;
+  min-width: 0;
   transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+input[type="text"],
+input[type="password"],
+input:not([type]),
+textarea {
+  cursor: text;
+}
+select {
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239a9a9a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
 }
 
 select:hover {
@@ -865,8 +883,8 @@ div.check-row {
 }
 
 .switch.on {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .switch-knob {
@@ -877,9 +895,12 @@ div.check-row {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--accent-text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  transition: transform 150ms ease;
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+.switch:not(.on) .switch-knob {
+  background: var(--muted);
 }
 
 /* Switch whisp 40x22px AA conservé (coucou = 36x20px — écart signalé). */

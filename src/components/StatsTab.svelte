@@ -43,10 +43,13 @@
   });
 </script>
 
-{#if error}
-  <p class="field-hint">{error}</p>
+{#if error && !stats}
+  <div class="empty">
+    <p class="muted">{error}</p>
+    <button type="button" class="ghost" onclick={refresh}>Réessayer</button>
+  </div>
 {:else if !stats}
-  <p class="muted">Chargement des statistiques…</p>
+  <p class="muted" aria-live="polite">Chargement des statistiques…</p>
 {:else}
   <div class="stats-grid" role="group" aria-label="Statistiques de dictée">
     {#each cards as c (c.label)}
@@ -56,8 +59,11 @@
       </div>
     {/each}
     <div class="row stats-foot">
-      <span class="field-hint">{stats.total_entries} dictées au total (150 mots/min).</span>
+      <span class="field-hint">{stats.total_entries} dictée{stats.total_entries > 1 ? "s" : ""} au total (150 mots/min).</span>
       <button type="button" class="ghost" onclick={refresh}>Actualiser</button>
     </div>
   </div>
+  {#if error}
+    <p class="field-hint" role="alert">{error} — affichage des dernières données.</p>
+  {/if}
 {/if}

@@ -35,8 +35,11 @@
   let list = $state<HTMLUListElement | null>(null);
 
   const selected = $derived(options.find((o) => o.value === value) ?? null);
+  const shown = $derived(selected?.label ?? (value ? value : (placeholder || "—")));
 
   function openList(): void {
+    // Liste vide (backend en cours) : ne pas ouvrir de listbox vide.
+    if (options.length === 0) return;
     const idx = options.findIndex((o) => o.value === value);
     highlight = idx >= 0 ? idx : 0;
     open = true;
@@ -110,7 +113,7 @@
     onclick={() => (open ? closeList(false) : openList())}
     onkeydown={onBtnKey}
   >
-    <span>{selected?.label ?? placeholder}</span>
+    <span>{shown}</span>
   </button>
   {#if open}
     <ul

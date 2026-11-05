@@ -27,8 +27,7 @@
     <p class="card-hint">Un moteur voix-texte par mode de dictée.</p>
   </div>
   <p class="muted">
-    Voix-texte par mode. Basculez la voix entre Local et Fish Audio
-    — {store.hasKey === true ? "clé Fish configurée" : "sans clé Fish, Fish Audio retombe en Local"}.
+    {store.hasKey === true ? "Clé Fish configurée — Fish Audio disponible." : "Sans clé Fish, Fish Audio retombe en Local (ajoutez-la dans Général)."}
   </p>
   <ul class="mode-list">
     {#each store.backendModes ?? modesFallback as m (m.id)}

@@ -42,7 +42,13 @@
     <section class="panel agent-teaser">
       <h2>The Notetaker</h2>
       <p class="card-hint">Votre agent lancé avec la dictée comme demande.</p>
-      <button type="button" class="ghost agent-link" onclick={() => goConfig("config")}>Ouvrir l'agent →</button>
+      <button type="button" class="ghost teaser-link" onclick={() => goConfig("config")}>Ouvrir l'agent →</button>
     </section>
   </div>
 </div>
+
+<style>
+  .teaser-link {
+    align-self: flex-start;
+  }
+</style>

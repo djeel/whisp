@@ -144,4 +144,25 @@
     max-width: 55%;
     min-width: 180px;
   }
+  .color-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+  }
+  .color-row input[type="color"] {
+    width: 44px;
+    height: 28px;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg-input);
+    cursor: pointer;
+  }
+  .color-row code {
+    font-size: 13px;
+    font-family: ui-monospace, monospace;
+    color: var(--text);
+    min-width: 64px;
+  }
 </style>

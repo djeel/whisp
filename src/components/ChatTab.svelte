@@ -120,11 +120,9 @@
 </script>
 
 <div class="chat">
-  <div class="row chat-bar">
-    <div class="check-row chat-provider">
-      <span>Fournisseur</span>
-      <Dropdown options={PROVIDER_OPTS} bind:value={provider} label="Fournisseur de chat" />
-    </div>
+  <div class="chat-bar">
+    <span class="chat-provider-label">Fournisseur</span>
+    <Dropdown options={PROVIDER_OPTS} bind:value={provider} label="Fournisseur de chat" />
     {#if provider === "claude"}
       <span class="field-hint">{hasKey === true ? "Compte Claude connecté." : hasKey === false ? "Compte non connecté." : "État de la connexion inconnu."}</span>
     {:else if provider !== "ollama"}
@@ -161,8 +159,8 @@
       {#if keyHint}<span class="field-hint">{keyHint}</span>{/if}
     </div>
   {/if}
-  <div class="chat-log" role="log" aria-label="Conversation">
-    {#if messages.length === 0}
+  <div class="chat-log" role="log" aria-label="Conversation" class:empty-log={messages.length === 0 && !busy}>
+    {#if messages.length === 0 && !busy}
       <p class="muted">Posez une question pour démarrer la conversation.</p>
     {:else}
       {#each messages as m, i (i)}
@@ -206,14 +204,33 @@
 </div>
 
 <style>
-  .chat-provider {
-    flex: 1 1 auto;
-    min-width: 220px;
-    border-bottom: none;
-    padding: 0;
+  .chat-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
-  .chat-provider :global(.dropdown) {
+  .chat-provider-label {
+    font-size: 14px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chat-bar :global(.dropdown) {
     flex: 0 1 240px;
+    min-width: 160px;
     margin-left: auto;
+  }
+  .chat-log.empty-log {
+    min-height: 120px;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius-panel);
+  }
+  /* Champ + bouton alignés sur la même ligne de base. */
+  .chat-input {
+    align-items: center;
   }
 </style>

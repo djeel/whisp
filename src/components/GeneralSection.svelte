@@ -11,11 +11,7 @@
     { value: "en", label: "English" },
     { value: "auto", label: "Auto (détection)" },
   ];
-  const THEME_OPTS: DropdownOption[] = [
-    { value: "system", label: "Système" },
-    { value: "dark", label: "Sombre" },
-    { value: "light", label: "Clair" },
-  ];
+  // Thème : réglé dans Apparence uniquement (source unique, même store).
   const STT_OPTS: DropdownOption[] = [
     { value: "small", label: "Small — vitesse (défaut)" },
     { value: "base", label: "Base — équilibré" },
@@ -107,10 +103,7 @@
       onselect={(v) => store.pushInputDevice(v)}
     />
   </div>
-  <div class="check-row">
-    <span>Thème</span>
-    <Dropdown options={THEME_OPTS} bind:value={store.theme} label="Thème" onselect={(v) => store.pushTheme(v as typeof store.theme)} />
-  </div>
+
   <div class="check-row">
     <span>Modèle STT</span>
     <Dropdown options={STT_OPTS} bind:value={store.sttModel} label="Modèle STT" onselect={(v) => store.pushSttModel(v as typeof store.sttModel)} />

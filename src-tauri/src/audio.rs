@@ -141,7 +141,6 @@ pub fn downmix_f32(interleaved: &[f32], channels: usize) -> Vec<f32> {
         .collect()
 }
 
-
 // ---------------------------------------------------------------------------
 // Live capture: stream lives on a worker thread, handle is Send
 // ---------------------------------------------------------------------------
@@ -320,7 +319,9 @@ fn build_capture_stream(
                             } else {
                                 mono.reserve(data.len() / channels.max(1) + 1);
                                 for ch in data.chunks(channels) {
-                                    mono.push(ch.iter().map(|&s| conv(s)).sum::<f32>() / ch.len() as f32);
+                                    mono.push(
+                                        ch.iter().map(|&s| conv(s)).sum::<f32>() / ch.len() as f32,
+                                    );
                                 }
                             }
                             // Level: cheap check FIRST, lock only when emitting (the

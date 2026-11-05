@@ -483,7 +483,8 @@ mod tests {
     fn with_isolated_config(f: impl FnOnce()) {
         let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let id = TEST_DIR_SEQ.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("whisp-cfg-test-{}-{}", std::process::id(), id));
+        let dir =
+            std::env::temp_dir().join(format!("whisp-cfg-test-{}-{}", std::process::id(), id));
         let _ = std::fs::create_dir_all(&dir);
         let prev = std::env::var("XDG_CONFIG_HOME").ok();
         std::env::set_var("XDG_CONFIG_HOME", &dir);
@@ -499,30 +500,154 @@ mod tests {
     /// Helpers : un seul champ `Some`, le reste `None` — comptage vérifiable
     /// ligne à ligne (12 + 12 + 2).
     fn set_popup_pos(v: String) -> Result<(), String> {
-        set(Some(v), None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None)
+        set(
+            Some(v),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     }
     fn set_theme(v: String) -> Result<(), String> {
-        set(None, None, Some(v), None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None)
+        set(
+            None,
+            None,
+            Some(v),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     }
     fn set_language_fr() -> Result<(), String> {
-        set(None, None, None, Some("fr".to_string()), None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None)
+        set(
+            None,
+            None,
+            None,
+            Some("fr".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     }
     fn set_agent_cwd(v: String) -> Result<(), String> {
-        set(None, None, None, None, None, None, None, Some(v), None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None)
+        set(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(v),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     }
     fn set_accent(source: Option<&str>, custom: Option<&str>) -> Result<(), String> {
-        set(None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None, None,
+        set(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             source.map(|s| s.to_string()),
-            custom.map(|s| s.to_string()))
+            custom.map(|s| s.to_string()),
+        )
     }
 
     #[test]
@@ -552,31 +677,48 @@ mod tests {
         // `write` écraserait les 7 autres ; avec, chaque champ survit.
         with_isolated_config(|| {
             let _ = std::fs::remove_file(config_path());
-            let handles: Vec<_> = (0..8).map(|i| {
-                std::thread::spawn(move || {
-                    let v = format!("v{i}");
-                    // Chaque thread ne touche qu'un champ : merge disjoint.
-                    let r = match i % 4 {
-                        0 => set_popup_pos(v),
-                        1 => set_theme(v),
-                        2 => set_language_fr(),
-                        _ => set_agent_cwd(v),
-                    };
-                    assert!(r.is_ok(), "set thread {i}: {r:?}");
+            let handles: Vec<_> = (0..8)
+                .map(|i| {
+                    std::thread::spawn(move || {
+                        let v = format!("v{i}");
+                        // Chaque thread ne touche qu'un champ : merge disjoint.
+                        let r = match i % 4 {
+                            0 => set_popup_pos(v),
+                            1 => set_theme(v),
+                            2 => set_language_fr(),
+                            _ => set_agent_cwd(v),
+                        };
+                        assert!(r.is_ok(), "set thread {i}: {r:?}");
+                    })
                 })
-            }).collect();
-            for h in handles { h.join().expect("set thread panicked"); }
+                .collect();
+            for h in handles {
+                h.join().expect("set thread panicked");
+            }
             // Fichier jamais tronqué : JSON valide après 8 writes concurrents
             // (tmp+rename : pas de demi-fichier observable).
             let raw = std::fs::read_to_string(config_path()).expect("config file exists");
-            let val: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON, never truncated");
+            let val: serde_json::Value =
+                serde_json::from_str(&raw).expect("valid JSON, never truncated");
             assert!(val.is_object());
             let cfg = load();
             // Chaque famille disjointe a survécu au merge : aucun lost update.
-            assert!(cfg.popup_pos.as_deref().is_some_and(|s| s.starts_with('v')), "popup_pos: {:?}", cfg.popup_pos);
-            assert!(cfg.theme.as_deref().is_some_and(|s| s.starts_with('v')), "theme: {:?}", cfg.theme);
+            assert!(
+                cfg.popup_pos.as_deref().is_some_and(|s| s.starts_with('v')),
+                "popup_pos: {:?}",
+                cfg.popup_pos
+            );
+            assert!(
+                cfg.theme.as_deref().is_some_and(|s| s.starts_with('v')),
+                "theme: {:?}",
+                cfg.theme
+            );
             assert_eq!(cfg.language.as_deref(), Some("fr"));
-            assert!(cfg.agent_cwd.as_deref().is_some_and(|s| s.starts_with('v')), "agent_cwd: {:?}", cfg.agent_cwd);
+            assert!(
+                cfg.agent_cwd.as_deref().is_some_and(|s| s.starts_with('v')),
+                "agent_cwd: {:?}",
+                cfg.agent_cwd
+            );
         });
     }
 }
