@@ -62,7 +62,7 @@ modules:
     sources:
       - type: file
         url: https://github.com/oven-sh/bun/releases/download/bun-v1.1.43/bun-linux-x64.zip
-        sha256: 0c91731a088116eb757fce829a3f46440f56cc55f0da3701e71a1b8aa081b1c2af
+        sha256: 8f98aa87091557647dc23c65c3206b14ee902c8e27d0203daa1200b2d1fa3c21
         dest-filename: bun-linux-x64.zip
 
   - name: whisp
