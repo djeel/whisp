@@ -37,9 +37,11 @@ L'app doit tourner (socket `$XDG_RUNTIME_DIR/whisp-<uid>.sock`, fallback `/tmp`)
 - `theme`: `system` | `dark` | `light`
 - `popupPos`: `top-center` (défaut) | `center` | `bottom-center`
 
-Clé Fish : `~/.config/whisp/fish_audio.key` (600). Sans clé, le cloud
-retombe en local. Le keyring système est contourné (crate Rust défectueuse
-sur ce host).
+Clé Fish : keyring OS -> `secret-tool` (Secret Service, chiffré) -> `~/.config/whisp/fish_audio.key` (600, dernier recours).
+Sans clé, le cloud retombe en local. Le crate keyring Rust est contourné via CLI quand il échoue.
+
+Socket local : `$XDG_RUNTIME_DIR/whisp-<uid>.sock` (0600) + token `~/.config/whisp/socket.token` (600).
+Le bridge MCP l'injecte seul ; `toggle` nu (Hyprland) reste exempt.
 
 ## Installer (nouvelle machine)
 

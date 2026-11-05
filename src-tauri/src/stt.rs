@@ -462,6 +462,34 @@ fn fish_key_file() -> std::path::PathBuf {
         .join("whisp/fish_audio.key")
 }
 
+fn secret_tool_get() -> Option<String> {
+    // Contourne le crate keyring défectueux via le CLI libsecret (si présent).
+    // `timeout 3` évite de figer stop/transcribe si le daemon secret est pendu.
+    let out = std::process::Command::new("timeout")
+        .args(["3", "secret-tool", "lookup", "service", KEYRING_SERVICE, "account", KEYRING_FISH_USER])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn secret_tool_set(key: &str) -> bool {
+    use std::io::Write;
+    // secret-tool lit le secret sur stdin.
+    let mut child = std::process::Command::new("timeout")
+        .args(["3", "secret-tool", "store", "--label=whisp fish_audio", "service", KEYRING_SERVICE, "account", KEYRING_FISH_USER])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let ok = child.stdin.take().map(|mut s| s.write_all(key.as_bytes()).is_ok()).unwrap_or(false)
+        && child.wait().map(|st| st.success()).unwrap_or(false);
+    ok
+}
+
 pub fn fish_api_key() -> Option<String> {
     // 1. OS keyring (preferred).
     if let Some(k) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_FISH_USER)
@@ -472,7 +500,11 @@ pub fn fish_api_key() -> Option<String> {
     {
         return Some(k);
     }
-    // 2. Fallback: mode 600 file (the keyring crate can't persist on this host).
+    // 2. Secret Service via CLI (contourne le crate défectueux, chiffré au repos).
+    if let Some(k) = secret_tool_get() {
+        return Some(k);
+    }
+    // 3. Fallback: mode 600 file (dernier recours, documenté comme non chiffré).
     std::fs::read_to_string(fish_key_file())
         .ok()
         .map(|k| k.trim().to_string())
@@ -484,17 +516,23 @@ pub fn set_fish_api_key(key: &str) -> Result<(), String> {
     if key.is_empty() {
         return Err("empty key".to_string());
     }
-    // Try keyring first; fall back to 600 file (never fail the save).
+    // 1. keyring crate (si réparé un jour).
     if keyring::Entry::new(KEYRING_SERVICE, KEYRING_FISH_USER)
         .and_then(|e| e.set_password(key).map_err(|_| keyring::Error::NoEntry))
         .is_ok()
     {
-        // Verify it round-trips; otherwise use the file.
         if fish_key_file_fallback_needed() {
             write_fish_key_file(key)?;
         }
         return Ok(());
     }
+    // 2. Secret Service CLI (chiffré, préféré au fichier).
+    if secret_tool_set(key) && secret_tool_get().is_some() {
+        // Nettoie l'ancien fichier 600 si le secret est désormais en lieu sûr.
+        let _ = std::fs::remove_file(fish_key_file());
+        return Ok(());
+    }
+    // 3. Dernier recours : fichier 600 (fonctionne partout, non chiffré).
     write_fish_key_file(key)
 }
 

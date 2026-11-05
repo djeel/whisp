@@ -60,6 +60,65 @@ pub fn enforce_600(path: &std::path::Path) {
 #[cfg(not(unix))]
 pub fn enforce_600(_path: &std::path::Path) {}
 
+/// Shared token for the local control plane (`~/.config/whisp/socket.token`, 0600).
+/// Any local process can connect to the unix socket; the token proves the caller
+/// is our MCP bridge, not a random local probe. Bare `toggle` (Hyprland bind)
+/// stays exempt for compat; all JSON `{"cmd":...}` require it once created.
+pub fn token_path() -> std::path::PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join(".config")
+        })
+        .join("whisp/socket.token")
+}
+
+/// Load or create the token (600). Never panics: on error returns a per-boot
+/// fallback (still consistent within this process).
+pub fn load_or_create_token() -> String {
+    let path = token_path();
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        let s = s.trim().to_string();
+        if s.len() >= 16 {
+            return s;
+        }
+    }
+    let tok = uuid::Uuid::new_v4().to_string().replace("-", "") + &uuid::Uuid::new_v4().to_string().replace("-", "");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::write(&path, &tok);
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::write(&path, &tok);
+    }
+    tok
+}
+
+/// Check a JSON command value for a valid token (`token` or `auth` field).
+/// Missing token file = allow (first boot before creation), otherwise strict.
+pub fn verify_token(v: &serde_json::Value) -> bool {
+    let provided = v.get("token").or_else(|| v.get("auth")).and_then(|x| x.as_str()).unwrap_or("");
+    if provided.is_empty() {
+        return false;
+    }
+    let expected = std::fs::read_to_string(token_path()).map(|s| s.trim().to_string()).unwrap_or_default();
+    if expected.len() < 16 {
+        // No token yet (fresh install): create one and allow this once so the
+        // bridge never deadlocks on first run.
+        let _ = load_or_create_token();
+        return true;
+    }
+    // Constant-time-ish compare (avoid trivial timing leak on local socket).
+    provided.len() == expected.len() && provided.bytes().zip(expected.bytes()).fold(0, |a, (x, y)| a | (x ^ y)) == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +134,10 @@ mod tests {
         // Ne touche pas au FS : vérifie juste la logique de sélection.
         let p = control_socket_path();
         assert!(p.to_string_lossy().contains("whisp-"));
+    }
+
+    #[test]
+    fn token_path_is_config() {
+        assert!(token_path().to_string_lossy().contains("socket.token"));
     }
 }
