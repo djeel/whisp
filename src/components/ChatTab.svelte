@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import Dropdown from "./Dropdown.svelte";
   import { CHAT_PROVIDERS, isChatProvider, type ChatProviderId } from "../lib/chatProviders";
-  import { listen, invoke } from "../lib/tauri";
+  import { invoke } from "../lib/tauri";
   import { readPref, writePref } from "../lib/prefs";
 
   interface ChatMsg {
@@ -41,7 +40,6 @@
   let bottom: HTMLDivElement | null = $state(null);
 
   const needsKey = $derived(provider !== "ollama" && hasKey === false);
-  const keyLabel = $derived(provider === "claude" ? "Token abonnement (`claude setup-token`)" : `Clé API ${provider}`);
   const providerLabel = $derived(PROVIDER_OPTS.find((o) => o.value === provider)?.label ?? provider);
   const canSend = $derived(draft.trim().length > 0 && !busy && !needsKey);
 
@@ -67,7 +65,6 @@
         hasKey = null;
       });
   });
-  // Autoscroll en bas à chaque message (throttlé anti layout-thrash).
   $effect(() => {
     void messages.length;
     void busy;
@@ -120,40 +117,36 @@
       send();
     }
   }
-
-  onMount(() => {
-    void listen("whisp://noop-chat", () => undefined).catch(() => undefined);
-  });
 </script>
 
-<div class="chat">
-  <div class="chat-head">
-    {#if messages.length > 0 || busy}
-      <div class="chat-id">
-        <span class="chat-model-dot" aria-hidden="true"></span>
-        <div class="chat-id-text">
-          <span class="chat-id-name">{providerLabel}</span>
-          <span class="chat-id-sub">
-            {#if provider === "ollama"}
-              Local, sans clé
-            {:else if hasKey === true}
-              {provider === "claude" ? "Compte connecté" : "Clé configurée"}
-            {:else if hasKey === false}
-              Clé manquante
-            {:else}
-              Vérification…
-            {/if}
-          </span>
-        </div>
+<div class="chat2">
+  <!-- Barre unique : identité + actions -->
+  <div class="chat2-top">
+    <div class="chat2-id">
+      <span class="chat2-dot" aria-hidden="true"></span>
+      <div class="chat2-id-text">
+        <span class="chat2-name">{providerLabel}</span>
+        <span class="chat2-sub">
+          {#if provider === "ollama"}
+            Local, sans clé
+          {:else if hasKey === true}
+            {provider === "claude" ? "Compte connecté" : "Clé configurée"}
+          {:else if hasKey === false}
+            Clé manquante
+          {:else}
+            Vérification…
+          {/if}
+        </span>
       </div>
-    {/if}
-    <div class="chat-head-actions">
+    </div>
+    <div class="chat2-actions">
       <Dropdown options={PROVIDER_OPTS} bind:value={provider} label="Fournisseur de chat" />
       <button
         type="button"
         class="ghost"
         onclick={() => {
           messages = [];
+          error = null;
         }}
         disabled={messages.length === 0 && !error}
         title="Effacer l'historique local du chat"
@@ -164,14 +157,17 @@
   </div>
 
   {#if needsKey}
-    <div class="chat-key">
+    <div class="chat2-key">
       <input
         type="password"
         bind:value={keyInput}
         placeholder={provider === "claude" ? "claude setup-token → sk-ant-oat-…" : `Coller la clé ${provider}…`}
-        aria-label={keyLabel}
+        aria-label={provider === "claude" ? "Token abonnement (claude setup-token)" : `Clé API ${provider}`}
         autocomplete="off"
         spellcheck={false}
+        onkeydown={(e) => {
+          if (e.key === "Enter") saveKey();
+        }}
       />
       <button type="button" class="primary" onclick={saveKey}>
         {provider === "claude" ? "Connecter" : "Enregistrer"}
@@ -180,39 +176,43 @@
     {#if keyHint}<p class="field-hint" role="status">{keyHint}</p>{/if}
   {/if}
 
-  <div class="chat-log" role="log" aria-label="Conversation" class:empty-log={messages.length === 0 && !busy}>
+  <!-- Zone centrale : vide hero OU conversation -->
+  <div class="chat2-body" role="log" aria-label="Conversation">
     {#if messages.length === 0 && !busy}
-      <div class="chat-empty">
-        <span class="chat-model-dot big" aria-hidden="true"></span>
-        <p class="chat-empty-title">Discutez avec {providerLabel}</p>
+      <div class="chat2-hero">
+        <span class="chat2-dot big" aria-hidden="true"></span>
+        <p class="chat2-hero-title">Discutez avec {providerLabel}</p>
         <p class="muted">Posez une question pour démarrer la conversation.</p>
       </div>
     {:else}
-      {#each messages as m, i (i)}
-        <div class="chat-msg {m.role}">
-          {#if m.role === "assistant"}<span class="chat-who">Assistant</span>{/if}
-          <p>{m.content}</p>
-        </div>
-      {/each}
-    {/if}
-    {#if busy}
-      <div class="chat-msg assistant pending" aria-live="polite">
-        <span class="chat-who">Assistant</span>
-        <p>
-          <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          Réponse en cours…
-        </p>
+      <div class="chat2-list">
+        {#each messages as m, i (i)}
+          <div class="chat2-msg {m.role}">
+            {#if m.role === "assistant"}<span class="chat2-who">Assistant</span>{/if}
+            <p>{m.content}</p>
+          </div>
+        {/each}
+        {#if busy}
+          <div class="chat2-msg assistant pending" aria-live="polite">
+            <span class="chat2-who">Assistant</span>
+            <p>
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              Réponse en cours…
+            </p>
+          </div>
+        {/if}
+        <div bind:this={bottom}></div>
       </div>
     {/if}
-    <div bind:this={bottom}></div>
   </div>
 
   {#if error}
-    <p class="field-hint chat-error" role="alert">{error}</p>
+    <p class="field-hint chat2-error" role="alert">{error}</p>
   {/if}
 
+  <!-- Composer ancré en bas -->
   <form
-    class="chat-input"
+    class="chat2-input"
     onsubmit={(e) => {
       e.preventDefault();
       send();
@@ -232,110 +232,155 @@
 </div>
 
 <style>
-  .chat {
+  .chat2 {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-height: 480px;
   }
-  /* En-tête : identité modèle + actions. */
-  .chat-head {
+  /* Barre identité + actions */
+  .chat2-top {
     display: flex;
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
   }
-  .chat-id {
+  .chat2-id {
     display: flex;
     align-items: center;
     gap: 10px;
     flex: 1;
-    min-width: 180px;
+    min-width: 160px;
   }
-  .chat-model-dot {
+  .chat2-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
     background: var(--accent);
     flex-shrink: 0;
   }
-  .chat-id-text {
+  .chat2-id-text {
     display: flex;
     flex-direction: column;
     min-width: 0;
   }
-  .chat-id-name {
+  .chat2-name {
     font-size: 14px;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .chat-id-sub {
+  .chat2-sub {
     font-size: 12px;
     color: var(--muted);
   }
-  .chat-head-actions {
+  .chat2-actions {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-left: auto;
   }
-  .chat-head-actions :global(.dropdown) {
+  .chat2-actions :global(.dropdown) {
     flex: 0 1 220px;
-    min-width: 150px;
+    min-width: 140px;
   }
-  /* Clé API : ligne compacte. */
-  .chat-key {
+  /* Clé API */
+  .chat2-key {
     display: flex;
     gap: 8px;
     align-items: stretch;
   }
-  .chat-key input {
+  .chat2-key input {
     flex: 1;
     min-width: 0;
   }
-  /* Log : bulles user à droite, assistant à gauche. */
-  .chat-log {
+  /* Corps : hero OU liste scrollable */
+  .chat2-body {
+    flex: 1;
+    min-height: 200px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
   }
-  .chat-log.empty-log {
-    min-height: 0;
-    padding: 40px 16px 48px;
-    align-items: center;
-    justify-content: center;
-  }
-  .chat-log.empty-log .chat-empty-title {
-    font-size: 17px;
-  }
-  .chat-empty {
+  .chat2-hero {
+    margin: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
     text-align: center;
+    gap: 4px;
+    padding: 32px 16px;
   }
-  .chat-model-dot.big {
+  .chat2-dot.big {
     width: 12px;
     height: 12px;
     margin-bottom: 8px;
   }
-  .chat-empty-title {
-    margin: 0 0 4px;
-    font-size: 15px;
+  .chat2-hero-title {
+    margin: 0;
+    font-size: 17px;
     font-weight: 600;
   }
-  .chat-error {
+  .chat2-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding: 4px 2px;
+    scroll-behavior: smooth;
+  }
+  .chat2-msg {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 14px;
+    border-radius: 16px;
+    max-width: 85%;
+    line-height: 1.5;
+  }
+  .chat2-msg.user {
+    align-self: flex-end;
+    background: var(--accent);
+    color: var(--accent-text);
+    border-bottom-right-radius: 6px;
+  }
+  .chat2-msg.assistant {
+    align-self: flex-start;
+    background: var(--bg-input);
+    border: 1px solid var(--line);
+    border-bottom-left-radius: 6px;
+  }
+  .chat2-msg p {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat2-msg.pending p {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chat2-who {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .chat2-msg.user .chat2-who {
+    display: none;
+  }
+  .chat2-error {
     margin: 0;
   }
-  /* Composer : champ + bouton même hauteur. */
-  .chat-input {
+  /* Composer */
+  .chat2-input {
     display: flex;
     gap: 8px;
     align-items: stretch;
   }
-  .chat-input input {
+  .chat2-input input {
     flex: 1;
     min-width: 0;
   }
