@@ -128,23 +128,25 @@
 
 <div class="chat">
   <div class="chat-head">
-    <div class="chat-id">
-      <span class="chat-model-dot" aria-hidden="true"></span>
-      <div class="chat-id-text">
-        <span class="chat-id-name">{providerLabel}</span>
-        <span class="chat-id-sub">
-          {#if provider === "ollama"}
-            Local, sans clé
-          {:else if hasKey === true}
-            {provider === "claude" ? "Compte connecté" : "Clé configurée"}
-          {:else if hasKey === false}
-            Clé manquante
-          {:else}
-            Vérification…
-          {/if}
-        </span>
+    {#if messages.length > 0 || busy}
+      <div class="chat-id">
+        <span class="chat-model-dot" aria-hidden="true"></span>
+        <div class="chat-id-text">
+          <span class="chat-id-name">{providerLabel}</span>
+          <span class="chat-id-sub">
+            {#if provider === "ollama"}
+              Local, sans clé
+            {:else if hasKey === true}
+              {provider === "claude" ? "Compte connecté" : "Clé configurée"}
+            {:else if hasKey === false}
+              Clé manquante
+            {:else}
+              Vérification…
+            {/if}
+          </span>
+        </div>
       </div>
-    </div>
+    {/if}
     <div class="chat-head-actions">
       <Dropdown options={PROVIDER_OPTS} bind:value={provider} label="Fournisseur de chat" />
       <button
@@ -181,6 +183,7 @@
   <div class="chat-log" role="log" aria-label="Conversation" class:empty-log={messages.length === 0 && !busy}>
     {#if messages.length === 0 && !busy}
       <div class="chat-empty">
+        <span class="chat-model-dot big" aria-hidden="true"></span>
         <p class="chat-empty-title">Discutez avec {providerLabel}</p>
         <p class="muted">Posez une question pour démarrer la conversation.</p>
       </div>
@@ -306,7 +309,16 @@
     border-radius: var(--radius-panel);
   }
   .chat-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
     text-align: center;
+  }
+  .chat-model-dot.big {
+    width: 12px;
+    height: 12px;
+    margin-bottom: 8px;
   }
   .chat-empty-title {
     margin: 0 0 4px;
