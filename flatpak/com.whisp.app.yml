@@ -30,7 +30,6 @@ cleanup:
   - /share/man
   - /share/doc
 modules:
-  # Rust stable + Node 20 + Bun (mêmes versions que la CI release).
   - name: rust
     buildsystem: simple
     build-commands:
@@ -53,7 +52,7 @@ modules:
     sources:
       - type: archive
         url: https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.gz
-        sha256: 8a3a3ef116fb80316ff8edfe0e2c9b3ba2a74760aa63e2279c9c219e8060121a72156
+        sha256: 259e5a8bf2e15ecece65bd2a47153262eda71c0b2c9700d5e703ce4951572784
         dest-filename: node.tar.gz
 
   - name: bun
