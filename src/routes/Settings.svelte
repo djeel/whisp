@@ -93,10 +93,6 @@
       </section>
     {:else if tab === "chat"}
       <section class="panel">
-        <div class="card-head">
-          <h1>Chat</h1>
-          <p class="card-hint">Discutez avec votre modèle local ou cloud.</p>
-        </div>
         <ChatTab />
       </section>
     {:else if tab === "modes"}
