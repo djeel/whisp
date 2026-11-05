@@ -301,12 +301,13 @@
     gap: 10px;
   }
   .chat-log.empty-log {
-    min-height: 160px;
-    padding: 28px 16px;
+    min-height: 0;
+    padding: 40px 16px 48px;
     align-items: center;
     justify-content: center;
-    border: 1px dashed var(--muted);
-    border-radius: var(--radius-panel);
+  }
+  .chat-log.empty-log .chat-empty-title {
+    font-size: 17px;
   }
   .chat-empty {
     display: flex;
