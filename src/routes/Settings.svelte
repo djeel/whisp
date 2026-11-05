@@ -4,8 +4,6 @@
 
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import Mochi from "../components/Mochi.svelte";
-  import Wardrobe from "../components/Wardrobe.svelte";
   import AppearanceSection from "../components/AppearanceSection.svelte";
   import ChatTab from "../components/ChatTab.svelte";
   import GeneralSection from "../components/GeneralSection.svelte";
@@ -83,17 +81,7 @@
         {/each}
       </div>
     </nav>
-    <div class="side-mochi">
-      <div class="side-mochi-head">
-        <Mochi mood="idle" size={48} animate={false} />
-        <div class="card-head">
-          <h2>Mochi</h2>
-          <p class="card-hint">Votre compagnon de dictée.</p>
-        </div>
-      </div>
-      <Wardrobe value={store.outfit} onChange={(id) => store.setOutfit(id)} />
-    </div>
-    <div class="side-foot">STT local • offline-first</div>
+
   </aside>
 
   <main class="content">

@@ -19,7 +19,6 @@ import {
   type ChatProviderId,
 } from "./chatProviders";
 import { readJSON, readPref, writeJSON, writePref } from "./prefs";
-import { readOutfit, writeOutfit, type OutfitId } from "../mochi/types";
 
 export type TabId = "home" | "stats" | "chat" | "modes" | "vocabulary" | "config";
 export type ThemePref = "system" | "dark" | "light";
@@ -120,23 +119,6 @@ function isSttModel(v: unknown): v is SttModel {
   return v === "small" || v === "medium" || v === "base";
 }
 
-export interface HistoryEntry {
-  id: string;
-  timestamp: number;
-  mode: string;
-  transcript_raw: string;
-  text_final: string;
-  audio_path?: string | null;
-}
-
-export function formatHistoryDate(timestamp: number): string {
-  try {
-    return new Date(timestamp * 1000).toLocaleString();
-  } catch {
-    return "";
-  }
-}
-
 export function truncate120(s: string): string {
   return s.length > 120 ? `${s.slice(0, 120)}…` : s;
 }
@@ -192,8 +174,6 @@ export class SettingsStore {
   voiceTesting = $state(false);
   size = $state<PopupSize>(isPopupSize(readStored("whisp:popup-size")) ? (readStored("whisp:popup-size") as PopupSize) : "M");
   opacity = $state<number>(typeof Number(readStored("whisp:card-opacity")) === "number" && Number(readStored("whisp:card-opacity")) >= 0.4 && Number(readStored("whisp:card-opacity")) <= 1 ? Number(readStored("whisp:card-opacity")) : 1);
-  outfit = $state<OutfitId>(readOutfit());
-  history = $state<HistoryEntry[]>([]);
   accentSource = $state<AccentSource>(readAccentSource());
   accentCustom = $state<string>(readAccentCustom());
   caelestia = $state<CaelestiaScheme | null>(null);
@@ -210,7 +190,6 @@ export class SettingsStore {
   );
 
   private unlistenCaelestia: (() => void) | null = null;
-  private unlistenState: (() => void) | null = null;
   private live = false;
 
   // Debounce partagé (tauri.ts, single timer 400 ms) : pas de 2e set_config.
@@ -374,28 +353,6 @@ export class SettingsStore {
       .catch(() => {
         if (this.live) this.inputDevices = [];
       });
-    // Historique : refresh au mount + à chaque dictée terminée.
-    this.refreshHistory();
-    try {
-      localStorage.removeItem("whisp:history");
-    } catch {
-      /* stockage indisponible */
-    }
-    listen<unknown>("whisp://state", (e) => {
-      if (!this.live) return;
-      const p = (e as { payload?: unknown }).payload as { status?: unknown } | null;
-      if (p && typeof p === "object" && p.status === "done") this.refreshHistory();
-    })
-      .then((un) => {
-        if (!this.live) {
-          un();
-          return;
-        }
-        this.unlistenState = un;
-      })
-      .catch(() => {
-        /* navigateur : pas d'événements backend */
-      });
   }
 
   destroy(): void {
@@ -403,8 +360,6 @@ export class SettingsStore {
     void this.flushConfig();
     if (this.unlistenCaelestia) this.unlistenCaelestia();
     this.unlistenCaelestia = null;
-    if (this.unlistenState) this.unlistenState();
-    this.unlistenState = null;
   }
 
   goTab(next: TabId): void {
@@ -495,33 +450,6 @@ export class SettingsStore {
       .catch(() => {
         /* backend en cours : rollback visuel au prochain chargement */
       });
-  }
-
-  setOutfit(next: OutfitId): void {
-    this.outfit = next;
-    writeOutfit(next);
-  }
-
-  refreshHistory(): void {
-    invoke<HistoryEntry[]>("list_history", { limit: 50 })
-      .then((rows) => {
-        if (this.live && Array.isArray(rows)) this.history = rows;
-      })
-      .catch(() => {
-        /* backend en cours : historique vide */
-      });
-  }
-
-  deleteEntry(id: string): void {
-    // Optimiste : retire tout de suite (jamais de freeze UI).
-    // Rollback si le backend échoue (ligne restaurée).
-    const gone = this.history.find((h) => h.id === id);
-    if (!gone) return;
-    this.history = this.history.filter((h) => h.id !== id);
-    invoke("delete_history", { id }).catch(() => {
-      if (!this.live) return;
-      this.history = this.history.some((h) => h.id === id) ? this.history : [...this.history, gone];
-    });
   }
 
   pushPopupPos(next: PopupPos): void {

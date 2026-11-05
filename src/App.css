@@ -500,39 +500,10 @@ kbd {
 }
 
 /* Mochi + tenue : ancrés EN BAS de la sidebar, jamais en tête. */
-.side-mochi {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 6px 4px;
-  border-top: 1px solid var(--line);
-  min-width: 0;
-}
 
-.side-mochi-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 4px;
-  min-width: 0;
-}
 
-.side-mochi-head h2 {
-  margin: 0;
-  font-size: 14px;
-}
 
-.side-mochi .card-head {
-  flex: 1;
-  min-width: 0;
-}
 
-.side-foot {
-  padding: 0 10px;
-  font-size: 12px;
-  color: var(--muted);
-}
 
 .content {
   flex: 1;
@@ -603,14 +574,6 @@ kbd {
   margin: 0;
 }
 
-.hints {
-  display: flex;
-  gap: 18px;
-  margin: 12px 0 0;
-  font-size: 13px;
-  color: var(--muted);
-  flex-wrap: wrap;
-}
 
 .row {
   display: flex;
@@ -715,14 +678,6 @@ input:focus,
 
 .mode-list,
 .vocab-list,
-.history-list {
-  list-style: none;
-  margin: 14px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
 .mode-row {
   display: flex;
@@ -748,33 +703,9 @@ li.mode-row {
 
 
 .vocab-list li,
-.history-list li {
-  background: var(--bg-input);
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
 
-.history-list li {
-  flex-direction: column;
-  align-items: stretch;
-}
 
-.history-list p {
-  margin: 0;
-}
 
-.history-list .meta {
-  display: flex;
-  gap: 12px;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
 
 .check-row {
   display: flex;
@@ -905,17 +836,7 @@ input[type="range"] {
   }
 }
 
-.history-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
 
-.history-head .card-head {
-  flex: 1;
-  min-width: 0;
-}
 
 /* ---------- Polish global : ellipsis, STA, empty, spinner ---------- */
 
@@ -946,21 +867,8 @@ input[type="range"] {
 /* Ellipsis partout où ça peut déborder */
 .mode-pick span,
 .vocab-list li span,
-.history-list p,
-.history-list .meta span,
-.brand span,
-.card-hint,
-.agent-row dd {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
 
 .vocab-list li span,
-.history-list p {
-  flex: 1;
-}
 
 /* États vides illustrés */
 .empty {
