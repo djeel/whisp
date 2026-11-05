@@ -42,19 +42,27 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb"],
+    "targets": [
+      "appimage",
+      "deb"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "updater": {
+      "active": true
+    }
   },
   "plugins": {
     "updater": {
       "active": true,
-      "endpoints": ["https://github.com/djeel/whisp/releases/latest/download/latest.json"],
+      "endpoints": [
+        "https://github.com/djeel/whisp/releases/latest/download/latest.json"
+      ],
       "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNEMDQzRDE5RTM1OEZENzcKUldSMy9WampHVDBFUFIyL01obDVFbFA4QkxWSW55UzYvUnRxdUFFQ0haZ2Z1Sjh3c3h0YTkzTEsK"
     }
