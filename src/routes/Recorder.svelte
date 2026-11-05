@@ -95,7 +95,9 @@
     void voiceQuestion;
     void approvals.length;
     void agentActive;
-    void agentOutput;
+    // PAS agentOutput : change chaque seconde en mode agent (poll 1 Hz) et
+    // recréerait le ResizeObserver + relancerait setSize/fit_window en boucle.
+    // La sortie agent scrolle dans son <pre> (overflow-y), pas besoin de resize.
     void isAgent;
     if (!isTauri()) return;
     const card = cardEl;
