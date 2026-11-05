@@ -38,6 +38,28 @@ def _sock_path() -> str:
 
 SOCK = _sock_path()
 
+def _token_path() -> str:
+    base = os.environ.get("XDG_CONFIG_HOME", "") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "whisp", "socket.token")
+
+def _load_token() -> str:
+    try:
+        with open(_token_path()) as f:
+            tok = f.read().strip()
+            if len(tok) >= 16:
+                return tok
+    except OSError:
+        pass
+    return ""
+
+def _with_auth(payload: dict) -> dict:
+    # Tout le JSON vers le control plane requiert le token (bare "toggle"
+    # Hyprland reste exempt côté Rust, mais le bridge MCP l'envoie toujours).
+    tok = _load_token()
+    if tok and "token" not in payload and "auth" not in payload:
+        payload = {**payload, "token": tok}
+    return payload
+
 TOOLS = [
     {"name": "whisp_status", "description": "Recording state (recording bool, active mode). Use before/after toggle.",
      "inputSchema": {"type": "object", "properties": {}}},
@@ -70,6 +92,7 @@ TOOLS = [
 
 def sock_cmd(payload: dict) -> dict:
     """Send one JSON command, return parsed reply (or error dict)."""
+    payload = _with_auth(dict(payload))
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(120)

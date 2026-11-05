@@ -1379,8 +1379,11 @@ fn has_api_key(provider: String) -> bool {
     if provider == "claude" || provider == "claude_oauth" {
         return llm::claude_oauth_status();
     }
+    if provider == "fish_audio" {
+        // Couvre keyring + secret-tool + fichier 600 (stt::fish_api_key).
+        return stt::fish_api_key().is_some();
+    }
     let entry = match provider.as_str() {
-        "fish_audio" => keyring::Entry::new("whisp", "fish_audio"),
         "anthropic" | "openai" | "google" | "openrouter" | "deepseek" | "qwen" | "moonshot" => {
             keyring::Entry::new("whisp", provider.as_str())
         }
@@ -1758,6 +1761,8 @@ fn register_hotkeys(app: &tauri::AppHandle) {
 /// One thread per connection (like `agent_hook`): a slow `stop` must not
 /// stall `status`/`toggle`/`cancel` on other connections.
 fn spawn_toggle_socket(app: tauri::AppHandle) {
+    // Crée le token une fois au boot (600) pour que le bridge MCP l'ait.
+    let _ = crate::socket::load_or_create_token();
     std::thread::Builder::new()
         .name("whisp-toggle-sock".to_string())
         .spawn(move || {
@@ -1843,7 +1848,7 @@ fn handle_socket_conn(app: &tauri::AppHandle, stream: std::os::unix::net::UnixSt
 fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
     let ok = |data: serde_json::Value| serde_json::json!({"ok": true, "data": data}).to_string();
     let fail = |e: String| serde_json::json!({"ok": false, "error": e}).to_string();
-    // Backward compat: bare "toggle" from the Hyprland bind.
+    // Backward compat: bare "toggle" from the Hyprland bind (no token, local bind only).
     if line == "toggle" {
         on_tray_event(app, "tray-record");
         return ok(serde_json::json!({"toggled": true}));
@@ -1852,6 +1857,10 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
         Ok(v) => v,
         Err(e) => return fail(format!("bad json: {e}")),
     };
+    // Token requis sur tout le JSON (anti probe local). Le bridge MCP l'injecte.
+    if !crate::socket::verify_token(&v) {
+        return fail("unauthorized (bad/missing token)".to_string());
+    }
     let cmd = v.get("cmd").and_then(|c| c.as_str()).unwrap_or("");
     match cmd {
         "toggle" => {
@@ -1910,8 +1919,9 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 .try_state::<AppState>()
                 .map(|s: tauri::State<'_, AppState>| current_mode_id(&s))
                 .unwrap_or_else(|| "message".to_string());
-            let mode = modes::get_mode(&mode_id)
-                .unwrap_or_else(|| modes::builtin_modes().into_iter().next().unwrap());
+            let mode = modes::get_mode(&mode_id).unwrap_or_else(|| {
+                modes::builtin_modes().into_iter().next().unwrap_or_else(|| modes::Mode { id: "message".to_string(), label: "Message".to_string(), preset: "message".to_string(), prompt: String::new(), stt: crate::modes::SttKind::Local, llm: crate::modes::LlmKind::OllamaLocal, language: "fr".to_string(), vocabulary: Vec::new() })
+            });
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
                 // Errors already surface via whisp://state Error inside; the
