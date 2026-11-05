@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "svelte-check --no-errors-on-unused --output machine | tail -1 && vite build",
+    "build": "svelte-check && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "check": "svelte-check"
