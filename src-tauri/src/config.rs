@@ -162,7 +162,19 @@ fn load_unlocked() -> AppConfig {
 
 /// Accept only `http(s)://host...` URLs. Rejects `file://`, bare hostnames
 /// and whitespace so a bad paste can't turn the local Ollama/chat calls
-/// into SSRF against link-local metadata & co.
+/// into SSRF. Bloque aussi les metadata cloud link-local (169.254.169.254,
+/// 100.100.100.200, metadata.google.internal) : loopback reste autorisé
+/// (Ollama local tourne en 127.0.0.1).
+fn blocked_metadata_host(host: &str) -> bool {
+    let h = host.trim().trim_matches(['[', ']']).to_lowercase();
+    h == "169.254.169.254"
+        || h.starts_with("169.254.")
+        || h == "100.100.100.200"
+        || h == "metadata.google.internal"
+        || h == "metadata.google"
+        || h == "instance-data"
+}
+
 fn validate_http_url(field: &str, v: &str) -> Result<(), String> {
     let v = v.trim();
     let rest = v
@@ -171,6 +183,13 @@ fn validate_http_url(field: &str, v: &str) -> Result<(), String> {
         .ok_or_else(|| format!("{field} must start with http:// or https:// (got '{v}')"))?;
     if rest.is_empty() || v.contains(char::is_whitespace) {
         return Err(format!("{field} needs an http(s) URL with a host (got '{v}')"));
+    }
+    let host = rest.split(['/', '?', '#', ':']).next().unwrap_or("");
+    if host.is_empty() {
+        return Err(format!("{field} needs an http(s) URL with a host (got '{v}')"));
+    }
+    if blocked_metadata_host(host) {
+        return Err(format!("{field} metadata cloud bloquée (got '{v}')"));
     }
     Ok(())
 }
@@ -736,6 +755,9 @@ mod tests {
         assert!(validate_http_url("ollama_url", "https://ollama local/v1").is_err());
         assert!(validate_http_url("ollama_url", "http://127.0.0.1:11434").is_ok());
         assert!(validate_http_url("chat_base_url", "https://api.openai.com/v1").is_ok());
+        // Metadata cloud bloquée, loopback OK pour Ollama local.
+        assert!(validate_http_url("chat_base_url", "http://169.254.169.254/latest").is_err());
+        assert!(validate_http_url("ollama_url", "http://100.100.100.200/").is_err());
     }
 
     #[test]
