@@ -1372,21 +1372,33 @@ fn set_config(
 /// currently holds non-blank output (lets the frontend show something
 /// useful without polling `agent_last_output` in a loop). Never fails:
 /// degrades to inactives on missing state.
-#[tauri::command]
-fn agent_status(app: tauri::AppHandle) -> serde_json::Value {
+ #[tauri::command]
+async fn agent_status(app: tauri::AppHandle) -> serde_json::Value {
     let last: Option<String> = app
-        .try_state::<AppState>()
-        .and_then(|s: State<'_, AppState>| s.agent_last.lock().ok().and_then(|g| g.clone()));
+         .try_state::<AppState>()
+         .and_then(|s: State<'_, AppState>| s.agent_last.lock().ok().and_then(|g| g.clone()));
+    // hyprctl + tmux ×2 + pgrep : jamais sur le thread principal, même avec
+    // deadlines (un spawn lent suffit à geler les clics pendant le mount).
+    let blocking = tauri::async_runtime::spawn_blocking(|| {
+        (
+            agent_session_active(),
+            resolve_agent_cwd(),
+            agent_pane_has_output(),
+        )
+    })
+    .await
+    .unwrap_or((false, config::agent_cwd_default(), false));
+    let (active, cwd, has_output) = blocking;
     serde_json::json!({
-        "active": agent_session_active(),
+        "active": active,
         "agent": config::agent_id(),
-        "cwd": resolve_agent_cwd(),
+        "cwd": cwd,
         "lastPrompt": last,
-        "hasOutput": agent_pane_has_output(),
+        "hasOutput": has_output,
     })
 }
 
- /// True when `capture-pane` on the agent session returns non-blank text.
+/// True when `capture-pane` on the agent session returns non-blank text.
  /// Best effort (false on missing tmux/session): keeps `agent_status`
  /// infallible while sparing the frontend blind output polling.
  fn agent_pane_has_output() -> bool {
@@ -1399,19 +1411,25 @@ fn agent_status(app: tauri::AppHandle) -> serde_json::Value {
  /// Dernière sortie Agent pour le module inline de la popup (remplace l'ancienne island).
  /// `tmux capture-pane` sur `whisp-agent`, 20 dernières lignes, jamais de log.
  #[tauri::command]
- fn agent_last_output() -> Result<String, String> {
-    // Deadline 5 s : même cause de freeze que ci-dessus (poll 1 Hz).
-    let text = run_timed_out(
-        &["tmux", "capture-pane", "-p", "-t", AGENT_SESSION, "-S", "-20"],
-        Duration::from_secs(5),
-    )
+async fn agent_last_output() -> Result<String, String> {
+     // Deadline 5 s : même cause de freeze que ci-dessus (poll 1 Hz).
+    // spawn_blocking en plus : même avec deadline, le spawn/wait ne doit
+    // jamais toucher le thread principal.
+    let text = tauri::async_runtime::spawn_blocking(|| {
+        run_timed_out(
+            &["tmux", "capture-pane", "-p", "-t", AGENT_SESSION, "-S", "-20"],
+            Duration::from_secs(5),
+        )
+    })
+    .await
+    .map_err(|e| format!("agent output worker: {e}"))?
     .map_err(|_| {
         "Agent introuvable, vérifie Configuration (tmux absent ou session `whisp-agent` absente — dicte une demande pour la créer)".to_string()
     })?;
      let lines: Vec<&str> = text.lines().collect();
      let start = lines.len().saturating_sub(20);
      Ok(lines[start..].join("\n").chars().take(2000).collect())
- }
+}
 
 /// Open (or focus) the agent terminal: focus `whisp-agent` when visible,
 /// otherwise open a terminal with a shell in the default cwd. No agent is
@@ -1597,10 +1615,14 @@ fn test_ollama(url: Option<String>) -> Result<String, String> {
     Ok(format!("Ollama OK ({base}, {n} modèle(s))"))
 }
 
-#[tauri::command]
-fn list_input_devices() -> Vec<String> {
-    audio::list_input_devices()
-}
+ #[tauri::command]
+async fn list_input_devices() -> Vec<String> {
+    // Énumération ALSA (jusqu'à 5 s sur certains systèmes) : jamais sur le
+    // thread principal — le mount Settings gelait les clics en attendant.
+    tauri::async_runtime::spawn_blocking(audio::list_input_devices)
+        .await
+        .unwrap_or_default()
+ }
 
 #[tauri::command]
 fn show_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
