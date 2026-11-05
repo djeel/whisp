@@ -619,11 +619,16 @@ fn claude_oauth_chat(
     Ok(parse_messages_text(&resp))
 }
 
-/// Tauri command: blocking chat completion for the Chat tab.
-#[tauri::command]
-pub fn chat_command(messages: Vec<ChatMessage>, provider: String) -> Result<String, String> {
-    chat(&provider, &messages)
-}
+ /// Tauri command: blocking chat completion for the Chat tab.
+ #[tauri::command]
+pub async fn chat_command(messages: Vec<ChatMessage>, provider: String) -> Result<String, String> {
+    // `chat()` = reqwest::blocking jusqu'à 120 s : JAMAIS sur le thread
+    // principal (freeze total constaté). spawn_blocking = thread pool dédié.
+    // (reqwest::blocking paniquerait dans un contexte async direct.)
+    tauri::async_runtime::spawn_blocking(move || chat(&provider, &messages))
+        .await
+        .map_err(|e| format!("chat worker: {e}"))?
+ }
 
 /// Tauri command: aggregate dictation stats from `history.db`.
 #[tauri::command]

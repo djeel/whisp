@@ -30,6 +30,9 @@ PING = b"__ping__"
 PONG = b"__pong__"
 MODEL_QUERY = b"__model__"
 ERROR_PREFIX = b"__WHISP_ERROR__:"
+# Taille max d'une frame (64 Mo : ~10 min de WAV 16k mono s16 = ~19 Mo,
+# marge large ; protège contre un length corrompu qui allouerait des Go).
+MAX_MSG = 64 * 1024 * 1024
 
 
 def recv_exact(conn: socket.socket, n: int) -> bytes:

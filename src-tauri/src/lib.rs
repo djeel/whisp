@@ -278,12 +278,8 @@ fn do_cancel(app: &tauri::AppHandle) -> Result<(), String> {
     }
     // Échap = tout s'arrête : Agent en cours (Ctrl-C tmux + flag), réponse
     // vocale en cours (le thread TTS vérifie le flag), puis hide.
-    let _ = std::process::Command::new("tmux")
-        .args(["send-keys", "-t", AGENT_SESSION, "C-c"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    // Deadline : Échap ne doit jamais figer l'app si tmux est coincé.
+    let _ = run_timed(&["tmux", "send-keys", "-t", AGENT_SESSION, "C-c"], Duration::from_secs(3));
     state
         .agent_running
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -367,11 +363,19 @@ async fn finish_from_handle(
             };
             let tx = stt.transcribe(&pcm, &lang)?;
             let llm = llm::select_llm(entry_mode.llm);
-            let refined = llm.refine(&tx.text, &entry_mode)?;
+            // Dégradation : si le raffinage échoue (Ollama injoignable),
+            // on colle le brut plutôt que de tout perdre (WAV + texte).
+            let refined = match llm.refine(&tx.text, &entry_mode) {
+                Ok(r) => r.text,
+                Err(e) => {
+                    eprintln!("[whisp] refine failed, raw fallback: {e}");
+                    tx.text.clone()
+                }
+            };
             let wav = audio::encode_wav_16k_mono(&pcm);
-            let entry = history::insert(&entry_mode.id, &tx.text, &refined.text, Some(&wav))?;
+            let entry = history::insert(&entry_mode.id, &tx.text, &refined, Some(&wav))?;
             let _ = entry;
-            Ok::<(String, String), String>((tx.text, refined.text))
+            Ok::<(String, String), String>((tx.text, refined))
         })
         .await
         .map_err(|e| format!("pipeline task: {e}"))?;
@@ -381,7 +385,16 @@ async fn finish_from_handle(
             .transcribing
             .store(false, std::sync::atomic::Ordering::SeqCst);
     }
-    let (raw, text_final): (String, String) = pipeline?;
+    // Point d'émission d'erreur UNIQUE : un pipeline en échec ne reste
+    // jamais en `processing` (freeze constaté : le commentaire disait que
+    // les erreurs passent par state Error, mais rien ne l'émettait ici).
+    let (raw, text_final): (String, String) = match pipeline {
+        Ok(t) => t,
+        Err(e) => {
+            emit_state(&app, RecStatus::Error, Some(e.clone()));
+            return Err(e);
+        }
+    };
     // Ordre critique : hide JUSTE avant le paste (rend le focus à l'app
     // cible), paste, puis re-show SANS focus. Avant : hide 200 lignes plus
     // Ctrl+V partait dans le vide. La popup reste ouverte après validation.
@@ -505,10 +518,73 @@ async fn finish_from_handle(
 //   (+ screenshot path when `grim` captured one). User speech is never logged.
 // ---------------------------------------------------------------------------
 
+/// Watchdog du thread principal GTK : si TOUTES les fenêtres figent,
+/// c'est ici que ça se voit (commande synchrone bloquée, tmux coincé…).
+/// Ping `run_on_main_thread` chaque seconde : >200 ms de latence = warning,
+/// >2 s sans réponse = MAIN THREAD BLOCKED (puis pstree/gdb côté shell).
+/// Coût : un thread dormant + un round-trip IPC/s.
+fn spawn_main_thread_watchdog(app: tauri::AppHandle) {
+    std::thread::Builder::new()
+        .name("whisp-watchdog".to_string())
+        .spawn(move || loop {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let t = std::time::Instant::now();
+            let _ = app.run_on_main_thread(move || {
+                let _ = tx.send(());
+            });
+            match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+                Ok(_) if t.elapsed() > std::time::Duration::from_millis(200) => {
+                    eprintln!("[whisp] main thread lag {:?}", t.elapsed());
+                }
+                Err(_) => {
+                    eprintln!(
+                        "[whisp] MAIN THREAD BLOCKED >2s (pstree -p $(pidof whisp) pour le coupable)"
+                    );
+                }
+                _ => {}
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        })
+        .ok();
+}
+
 /// Persistent agent session (tmux name + terminal title).
 const AGENT_SESSION: &str = "whisp-agent";
 
-fn have_bin(name: &str) -> bool {
+ fn have_bin(name: &str) -> bool {
+    // Cache process-wide : `command -v` spawnait un `sh` à chaque poll
+    // (agent_status + agent_last_output à 1 Hz = 2 sh/s). Le PATH ne
+    // change pas pendant la vie du process : scan direct, zéro spawn.
+    static CACHE: std::sync::LazyLock<std::collections::HashMap<String, bool>> =
+        std::sync::LazyLock::new(|| {
+         let mut m = std::collections::HashMap::new();
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut dirs: Vec<std::path::PathBuf> = std::env::split_paths(&path).collect();
+        dirs.push("/usr/bin".into());
+        dirs.push("/usr/local/bin".into());
+        for bin in [
+            "tmux", "hyprctl", "grim", "wl-copy", "wtype", "ydotool", "xdotool", "foot", "kitty",
+            "xterm", "pgrep", "pkill", "bash",
+        ] {
+            m.insert(
+                bin.to_string(),
+                dirs.iter().any(|d| {
+                    let p = d.join(bin);
+                    std::fs::metadata(&p)
+                        .map(|md| {
+                            use std::os::unix::fs::PermissionsExt;
+                            md.is_file() && md.permissions().mode() & 0o111 != 0
+                        })
+                        .unwrap_or(false)
+                }),
+            );
+        }
+        m
+    });
+    if let Some(&hit) = CACHE.get(name) {
+        return hit;
+    }
+    // Binaire hors liste : fallback spawn (rare, jamais sur le hot path).
     std::process::Command::new("sh")
         .arg("-c")
         .arg(format!("command -v {name} >/dev/null 2>&1"))
@@ -518,19 +594,14 @@ fn have_bin(name: &str) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
-}
+ }
 
-fn tmux_session_active() -> bool {
+ fn tmux_session_active() -> bool {
+    // Deadline 5 s : un serveur tmux coincé figeait le thread principal
+    // (freeze constaté sur agent_status pollé à 1 Hz).
     have_bin("tmux")
-        && std::process::Command::new("tmux")
-            .args(["has-session", "-t", AGENT_SESSION])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-}
+        && run_timed(&["tmux", "has-session", "-t", AGENT_SESSION], Duration::from_secs(5)).is_ok()
+ }
 
 /// Deadline for a local tmux control command (`has-session`,
 /// `display-message`, `new-session`, `send-keys`, `kill-session`). These are
@@ -578,32 +649,25 @@ fn recreate_agent_session() -> Result<(), String> {
 }
 
 /// A visible agent terminal is already open (foot/kitty/xterm titled whisp-agent).
-fn agent_term_visible() -> bool {
-    std::process::Command::new("pgrep")
-        .args(["-f", AGENT_SESSION])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// True when a previous Agent dictation left a live session behind.
-fn agent_session_active() -> bool {
-    tmux_session_active() || agent_term_visible()
-}
-
-/// Bring the existing agent terminal forward (Hyprland) instead of opening
-/// a second one. Best effort.
-fn focus_agent_term() {
-    let _ = std::process::Command::new("hyprctl")
-        .args(["dispatch", "focuswindow", &format!("title:{AGENT_SESSION}")])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-}
+ fn agent_term_visible() -> bool {
+    // Deadline : pgrep coincé (sysfs lent) ne doit pas figer le poll 1 Hz.
+    run_timed(&["pgrep", "-f", AGENT_SESSION], Duration::from_secs(5)).is_ok()
+ }
+ 
+ /// True when a previous Agent dictation left a live session behind.
+ fn agent_session_active() -> bool {
+     tmux_session_active() || agent_term_visible()
+ }
+ 
+ /// Bring the existing agent terminal forward (Hyprland) instead of opening
+ /// a second one. Best effort.
+ fn focus_agent_term() {
+    // Best effort : un hyprctl coincé ne doit jamais figer l'UI.
+    let _ = run_timed(
+        &["hyprctl", "dispatch", "focuswindow", &format!("title:{AGENT_SESSION}")],
+        Duration::from_secs(3),
+    );
+ }
 
 /// Open the visible agent terminal running `shell_cmd` (a `sh -c` body).
 /// foot first, then kitty, then xterm. Silent when no terminal exists.
@@ -653,12 +717,8 @@ fn resolve_agent_cwd() -> String {
     if !config::agent_context_enabled() {
         return default;
     }
-    let text = std::process::Command::new("hyprctl")
-        .args(["activewindow", "-j"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    // Deadline 3 s : hyprctl coincé (service sans WAYLAND_DISPLAY) = défaut.
+    let text = run_timed_out(&["hyprctl", "activewindow", "-j"], Duration::from_secs(3)).ok();
     let text = match text {
         Some(t) => t,
         None => return default,
@@ -726,14 +786,8 @@ fn capture_agent_screenshot() -> Option<String> {
     let path = std::env::var("XDG_RUNTIME_DIR")
         .map(|r| format!("{r}/whisp-agent-screen.png"))
         .unwrap_or_else(|_| "/tmp/whisp-agent-screen.png".to_string());
-    let ok = std::process::Command::new("grim")
-        .arg(&path)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    // Deadline 10 s : capture plein écran sur disque lent.
+    let ok = run_timed(&["grim", &path], Duration::from_secs(10)).is_ok();
     if ok {
         Some(path)
     } else {
@@ -827,7 +881,9 @@ fn preset_agent_bin(agent: &str, have: impl Fn(&str) -> bool) -> &str {
 /// commands are local IPC and answer in milliseconds, so a timeout always
 /// means a wedged server, never a slow agent run (the run itself is
 /// fire-and-forget, never waited on).
-fn run_timed(argv: &[&str], timeout: Duration) -> Result<(), String> {
+/// Exécute un process avec deadline. `pub(crate)` : les modules commandes
+/// (shortcuts, voice) partagent le même garde-fou anti-freeze.
+pub(crate) fn run_timed(argv: &[&str], timeout: Duration) -> Result<(), String> {
     if argv.is_empty() {
         return Err("empty command".to_string());
     }
@@ -855,6 +911,73 @@ fn run_timed(argv: &[&str], timeout: Duration) -> Result<(), String> {
                         argv[0],
                         timeout.as_secs()
                     ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+}
+
+/// Même contrat que `run_timed` mais capture stdout (tronqué à 64 Ko).
+/// Utilisé par les commandes Tauri qui lisent un process (hyprctl, tmux
+/// capture-pane) : sans deadline, un serveur coincé fige le thread principal
+/// GTK et TOUTES les fenêtres (freeze constaté sur les polls à 1 Hz).
+pub(crate) fn run_timed_out(argv: &[&str], timeout: Duration) -> Result<String, String> {
+    use std::io::Read;
+    if argv.is_empty() {
+        return Err("empty command".to_string());
+    }
+    let mut child = std::process::Command::new(argv[0])
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("spawn {}: {e}", argv[0]))?;
+    let mut stdout_taken = child.stdout.take();
+    // Lecture dans un thread dédié : le pipe ne bloque jamais le wait.
+    let reader = std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        let mut acc = Vec::new();
+        if let Some(so) = stdout_taken.as_mut() {
+            loop {
+                match so.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        acc.extend_from_slice(&buf[..n]);
+                        if acc.len() > 65536 {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        String::from_utf8_lossy(&acc).into_owned()
+    });
+    let start = std::time::Instant::now();
+    loop {
+        match child
+            .try_wait()
+            .map_err(|e| format!("wait {}: {e}", argv[0]))?
+        {
+            Some(status) if status.success() => {
+                let mut out = reader.join().unwrap_or_default();
+                if out.len() > 65536 {
+                    out.truncate(65536);
+                }
+                return Ok(out);
+            }
+            Some(status) => {
+                let _ = reader.join();
+                let _ = child.wait();
+                return Err(format!("{} exited with {status}", argv[0]));
+            }
+            None => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = reader.join();
+                    return Err(format!("{} timed out after {}s", argv[0], timeout.as_secs()));
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -1263,39 +1386,32 @@ fn agent_status(app: tauri::AppHandle) -> serde_json::Value {
     })
 }
 
-/// True when `capture-pane` on the agent session returns non-blank text.
-/// Best effort (false on missing tmux/session): keeps `agent_status`
-/// infallible while sparing the frontend blind output polling.
-fn agent_pane_has_output() -> bool {
-    let out = std::process::Command::new("tmux")
-        .args(["capture-pane", "-p", "-t", AGENT_SESSION])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output();
-    match out {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
-            .chars()
-            .any(|c| !c.is_whitespace()),
-        _ => false,
-    }
-}
-
-/// Dernière sortie Agent pour le module inline de la popup (remplace l'ancienne island).
-/// `tmux capture-pane` sur `whisp-agent`, 20 dernières lignes, jamais de log.
-#[tauri::command]
-fn agent_last_output() -> Result<String, String> {
-    let out = std::process::Command::new("tmux")
-        .args(["capture-pane", "-p", "-t", AGENT_SESSION, "-S", "-20"])
-        .output()
-        .map_err(|e| format!("Agent introuvable, vérifie Configuration (tmux absent ou inlançable : {e} — installe tmux ou ouvre le terminal agent)"))?;
-    if !out.status.success() {
-        return Err("Agent introuvable, vérifie Configuration (session `whisp-agent` absente — dicte une demande pour la créer)".to_string());
-    }
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    let lines: Vec<&str> = text.lines().collect();
-    let start = lines.len().saturating_sub(20);
-    Ok(lines[start..].join("\n").chars().take(2000).collect())
-}
+ /// True when `capture-pane` on the agent session returns non-blank text.
+ /// Best effort (false on missing tmux/session): keeps `agent_status`
+ /// infallible while sparing the frontend blind output polling.
+ fn agent_pane_has_output() -> bool {
+    // Deadline 5 s : pollé à 1 Hz en mode agent, un tmux coincé figeait tout.
+    run_timed_out(&["tmux", "capture-pane", "-p", "-t", AGENT_SESSION], Duration::from_secs(5))
+        .map(|o| o.chars().any(|c| !c.is_whitespace()))
+        .unwrap_or(false)
+ }
+ 
+ /// Dernière sortie Agent pour le module inline de la popup (remplace l'ancienne island).
+ /// `tmux capture-pane` sur `whisp-agent`, 20 dernières lignes, jamais de log.
+ #[tauri::command]
+ fn agent_last_output() -> Result<String, String> {
+    // Deadline 5 s : même cause de freeze que ci-dessus (poll 1 Hz).
+    let text = run_timed_out(
+        &["tmux", "capture-pane", "-p", "-t", AGENT_SESSION, "-S", "-20"],
+        Duration::from_secs(5),
+    )
+    .map_err(|_| {
+        "Agent introuvable, vérifie Configuration (tmux absent ou session `whisp-agent` absente — dicte une demande pour la créer)".to_string()
+    })?;
+     let lines: Vec<&str> = text.lines().collect();
+     let start = lines.len().saturating_sub(20);
+     Ok(lines[start..].join("\n").chars().take(2000).collect())
+ }
 
 /// Open (or focus) the agent terminal: focus `whisp-agent` when visible,
 /// otherwise open a terminal with a shell in the default cwd. No agent is
@@ -1438,20 +1554,19 @@ fn install_agent_hooks(agent: String) -> Result<String, String> {
         })
         .filter(|p| p.exists())
         .ok_or_else(|| "install-hook.sh introuvable".to_string())?;
-    let out = std::process::Command::new("bash")
-        .arg(&script)
-        .arg("--agent")
-        .arg(&agent)
-        .output()
-        .map_err(|e| format!("install-hook: {e}"))?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        Err(format!(
-            "install-hook: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ))
+    // Deadline 120 s : le script touche le FS + réseau (npm), jamais infini.
+    // run_timed_out jette stderr : en échec on relance pas, on dégrade le
+    // message (le détail était sur stderr, rarement utile).
+    let out = run_timed_out(
+        &["bash", &script.to_string_lossy(), "--agent", &agent],
+        Duration::from_secs(120),
+    )
+    .map_err(|e| format!("install-hook: {e}"))?;
+    let msg = out.trim().to_string();
+    if msg.is_empty() {
+        return Err("install-hook: échec sans message (voir logs)".to_string());
     }
+    Ok(msg)
 }
 
 /// Teste la connexion au serveur Ollama (Settings → Modèles locaux).
@@ -2049,15 +2164,16 @@ pub fn run() {
         .manage(AppState::new())
         .manage(agent_hook::PendingApprovals::default())
         .setup(|app| {
-            register_hotkeys(app.handle());
-            if build_tray(app.handle()).is_err() {
-                // Best effort: tray is convenience, recorder works without it.
-            }
-            spawn_toggle_socket(app.handle().clone());
-            agent_hook::spawn_agents_socket(app.handle().clone());
-            agent_hook::ensure_relay_installed();
-            // Recorder starts hidden (see tauri.conf.json `visible: false`).
-            Ok(())
+        register_hotkeys(app.handle());
+        if build_tray(app.handle()).is_err() {
+        // Best effort: tray is convenience, recorder works without it.
+        }
+        spawn_toggle_socket(app.handle().clone());
+        agent_hook::spawn_agents_socket(app.handle().clone());
+        agent_hook::ensure_relay_installed();
+        spawn_main_thread_watchdog(app.handle().clone());
+        // Recorder starts hidden (see tauri.conf.json `visible: false`).
+        Ok(())
         })
         .on_menu_event(|app, event| on_tray_event(app, event.id.as_ref()))
         .on_window_event(|window, event| {

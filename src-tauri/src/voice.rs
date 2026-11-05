@@ -199,16 +199,15 @@ pub fn maybe_speak_voice_reply(question: &str, emit: impl Fn(bool) + Send + 'sta
 
 /// Tue la lecture TTS en cours (mpv/ffplay). Appelé par Échap : la réponse
 /// vocale s'arrête net, pas de son qui traîne après la fermeture.
-pub fn kill_playback() {
-    // Ciblé uniquement : le pattern matche nos fichiers /tmp/whisp-tts-*.mp3.
-    // Pas de `pkill -x mpv` : ça tuerait le lecteur vidéo de l'utilisateur.
-    let _ = std::process::Command::new("pkill")
-        .args(["-f", "whisp-tts-.*\\.(mp3|wav)"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-}
+ pub fn kill_playback() {
+     // Ciblé uniquement : le pattern matche nos fichiers /tmp/whisp-tts-*.mp3.
+     // Pas de `pkill -x mpv` : ça tuerait le lecteur vidéo de l'utilisateur.
+    // Deadline : appelé par Échap, ne doit jamais figer le cancel.
+    let _ = crate::run_timed(
+        &["pkill", "-f", "whisp-tts-.*\\.(mp3|wav)"],
+        std::time::Duration::from_secs(5),
+    );
+ }
 
 // ---------------------------------------------------------------------------
 // Tauri commands

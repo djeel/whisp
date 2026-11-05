@@ -307,6 +307,10 @@ fn transcribe_via_daemon(
     // dictées normales, mais un ring de 10 min donnerait 1230 s — un daemon
     // gelé parquerait le thread `stop` 20 min. 600 s couvre 4 min d'audio.
     let secs = secs.clamp(30, 600);
+    conn.set_read_timeout(Some(Duration::from_secs(secs)))
+        .and(conn.set_write_timeout(Some(Duration::from_secs(30))))
+        .map_err(|e| format!("daemon timeout: {e}"))?;
+    write_frame(&mut conn, &payload)?;
     let resp = read_frame(&mut conn)?;
     if let Some(msg) = resp.strip_prefix(ERROR_PREFIX) {
         return Err(format!(
