@@ -94,6 +94,15 @@ pub struct AppConfig {
     /// Accent personnalisé `#rrggbb` (quand `accent_source = "custom"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent_custom: Option<String>,
+    /// Raccourci toggle dictée, format `alt+Space`. Vide/absent = défaut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkey_toggle: Option<String>,
+    /// Raccourci push-to-talk (maintenir), format `control+alt+Space`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkey_push_to_talk: Option<String>,
+    /// Raccourci cycle de mode, format `control+alt+M`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkey_cycle_mode: Option<String>,
     /// Position mémorisée de la popup "x,y" logiques (drag utilisateur).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup_xy: Option<String>,
@@ -180,6 +189,9 @@ pub fn set(
     popup_xy: Option<String>,
     accent_source: Option<String>,
     accent_custom: Option<String>,
+    hotkey_toggle: Option<String>,
+    hotkey_push_to_talk: Option<String>,
+    hotkey_cycle_mode: Option<String>,
 ) -> Result<(), String> {
     if let Some(m) = &stt_model {
         if !matches!(m.as_str(), "small" | "medium" | "base") {
@@ -309,6 +321,15 @@ pub fn set(
     }
     if accent_custom.is_some() {
         cfg.accent_custom = accent_custom;
+    }
+    if hotkey_toggle.is_some() {
+        cfg.hotkey_toggle = hotkey_toggle;
+    }
+    if hotkey_push_to_talk.is_some() {
+        cfg.hotkey_push_to_talk = hotkey_push_to_talk;
+    }
+    if hotkey_cycle_mode.is_some() {
+        cfg.hotkey_cycle_mode = hotkey_cycle_mode;
     }
     // Écriture atomique : tmp + rename (jamais de JSON à moitié écrit,
     // même en cas de kill pendant le write).
@@ -527,6 +548,9 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
         )
     }
     fn set_theme(v: String) -> Result<(), String> {
@@ -534,6 +558,9 @@ mod tests {
             None,
             None,
             Some(v),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -587,6 +614,9 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
         )
     }
     fn set_agent_cwd(v: String) -> Result<(), String> {
@@ -599,6 +629,9 @@ mod tests {
             None,
             None,
             Some(v),
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -647,6 +680,9 @@ mod tests {
             None,
             source.map(|s| s.to_string()),
             custom.map(|s| s.to_string()),
+            None,
+            None,
+            None,
         )
     }
 
