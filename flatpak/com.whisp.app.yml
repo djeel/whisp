@@ -29,19 +29,8 @@ cleanup:
   - /lib/pkgconfig
   - /share/man
   - /share/doc
+# Rust : fourni par le SDK Freedesktop (rustc/cargo stables préinstallés).
 modules:
-  - name: rust
-    buildsystem: simple
-    build-commands:
-      - rustup install stable --profile minimal
-      - rustup default stable
-    sources:
-      - type: script
-        dest-filename: rustup-init.sh
-        commands:
-          - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup.sh
-          - sh rustup.sh -y --profile minimal --default-toolchain stable
-
   - name: node
     buildsystem: simple
     build-commands:
