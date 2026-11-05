@@ -1,12 +1,11 @@
 <script module lang="ts">
-  export type FlowTab = "home" | "stats" | "chat" | "modes" | "vocabulary" | "config";
+  export type FlowTab = "home" | "stats" | "modes" | "vocabulary" | "config";
 </script>
 
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import AppearanceSection from "../components/AppearanceSection.svelte";
-  import ChatTab from "../components/ChatTab.svelte";
-  import GeneralSection from "../components/GeneralSection.svelte";
+    import GeneralSection from "../components/GeneralSection.svelte";
   import HomeTab from "../components/HomeTab.svelte";
   import ModesTab from "../components/ModesTab.svelte";
   import ProvidersSection from "../components/ProvidersSection.svelte";
@@ -33,7 +32,7 @@
       }
     })();
     tab =
-      raw === "stats" || raw === "chat" || raw === "modes" || raw === "vocabulary" || raw === "config"
+      raw === "stats" || raw === "modes" || raw === "vocabulary" || raw === "config"
         ? raw
         : "home";
     void store.init();
@@ -90,10 +89,6 @@
           <p class="card-hint">Votre activité de dictée, calculée en local.</p>
         </div>
         <StatsTab />
-      </section>
-    {:else if tab === "chat"}
-      <section class="panel">
-        <ChatTab />
       </section>
     {:else if tab === "modes"}
       <ModesTab {store} />

@@ -20,7 +20,7 @@ import {
 } from "./chatProviders";
 import { readJSON, readPref, writeJSON, writePref } from "./prefs";
 
-export type TabId = "home" | "stats" | "chat" | "modes" | "vocabulary" | "config";
+export type TabId = "home" | "stats" | "modes" | "vocabulary" | "config";
 export type ThemePref = "system" | "dark" | "light";
 export type PopupPos = "top-center" | "center" | "bottom-center" | "cursor";
 export type SttModel = "small" | "medium" | "base";
@@ -64,7 +64,6 @@ export const FLOW_TABS: Array<{ id: TabId; label: string }> = [
   { id: "stats", label: "Statistics" },
   { id: "vocabulary", label: "Dictionary" },
   { id: "modes", label: "Modes" },
-  { id: "chat", label: "Chat" },
   { id: "config", label: "Settings" },
 ];
 
@@ -72,7 +71,6 @@ export const PILL_DEFS: Array<{ id: string; label: string; hint: string }> = [
   { id: "dictee", label: "Dictée", hint: "Transcription + collage au curseur" },
   { id: "agent", label: "Agent", hint: "Agent lancé avec la dictée comme demande" },
   { id: "agents", label: "Agents suivis", hint: "Sessions agents via hooks (popup agent)" },
-  { id: "chat", label: "Chat", hint: "Modèle local ou cloud" },
 ];
 
 export const MODES = ["Message", "Mail", "Voice", "Agent"];
@@ -126,7 +124,7 @@ export function truncate120(s: string): string {
 /** État Settings complet : 1 seul fetchAppConfig() au mount (single-flight),
  * queueConfig debounce 400 ms + flush explicite, migrations conservées. */
 export class SettingsStore {
-  tab = $state<TabId>(readStored("whisp:tab") === "stats" || readStored("whisp:tab") === "chat" || readStored("whisp:tab") === "modes" || readStored("whisp:tab") === "vocabulary" || readStored("whisp:tab") === "config" ? (readStored("whisp:tab") as TabId) : "home");
+  tab = $state<TabId>(readStored("whisp:tab") === "stats" || readStored("whisp:tab") === "modes" || readStored("whisp:tab") === "vocabulary" || readStored("whisp:tab") === "config" ? (readStored("whisp:tab") as TabId) : "home");
   refreshTick = $state(0);
   vocab = $state<string[]>(readJSON<string[]>("whisp:vocab", []));
   word = $state("");
@@ -143,7 +141,7 @@ export class SettingsStore {
   vocabMsg = $state<string | null>(null);
   autoPaste = $state<boolean>(readStored("whisp:auto-paste") !== "0");
   realtime = $state<boolean>(readStored("whisp:realtime") !== "0");
-  activePills = $state<string[]>(readJSON<string[]>("whisp:active-pills", ["dictee", "agent", "agents", "chat"]));
+  activePills = $state<string[]>(readJSON<string[]>("whisp:active-pills", ["dictee", "agent", "agents"]));
   pillDefs = PILL_DEFS;
   agentHooks = $state<AgentHookEntry[] | null>(null);
   agentMsg = $state<string | null>(null);
@@ -237,7 +235,7 @@ export class SettingsStore {
       writeStored("whisp:agent-command", this.agentCommand);
     }
     if (Array.isArray(cfg?.activePills)) {
-      const kept = (cfg.activePills as unknown[]).filter((p): p is string => typeof p === "string").map((p) => (p === "sta" ? "agent" : p));
+      const kept = (cfg.activePills as unknown[]).filter((p): p is string => typeof p === "string").map((p) => (p === "sta" ? "agent" : p)).filter((p) => p !== "chat");
       if (kept.length > 0) {
         this.activePills = kept;
         writeJSON("whisp:active-pills", kept);
