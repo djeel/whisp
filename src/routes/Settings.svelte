@@ -1,17 +1,16 @@
 <script module lang="ts">
-  export type FlowTab = "home" | "stats" | "config";
+  export type FlowTab = "home" | "stats" | "app" | "apparence" | "agents";
 </script>
 
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import AppearanceSection from "../components/AppearanceSection.svelte";
+  import AgentSection from "../components/AgentSection.svelte";
     import GeneralSection from "../components/GeneralSection.svelte";
   import HomeTab from "../components/HomeTab.svelte";
-  import ProvidersSection from "../components/ProvidersSection.svelte";
   import ShortcutsSection from "../components/ShortcutsSection.svelte";
   import StatsTab from "../components/StatsTab.svelte";
   import UpdatesSection from "../components/UpdatesSection.svelte";
-  import VoiceSection from "../components/VoiceSection.svelte";
   import { SettingsStore, FLOW_TABS, type TabId } from "../lib/settings.svelte";
   import { applyAppearance } from "../lib/accent";
   import { useConfigFlushOnDestroy } from "../lib/tauri";
@@ -29,7 +28,7 @@
         return null;
       }
     })();
-    tab = raw === "stats" || raw === "config" ? (raw as TabId) : "home";
+    tab = raw === "stats" || raw === "app" || raw === "apparence" || raw === "agents" ? (raw as TabId) : raw === "config" ? "app" : "home";
     void store.init();
   });
   onDestroy(() => {
@@ -85,17 +84,26 @@
         </div>
         <StatsTab />
       </section>
-    {:else}
+    {:else if tab === "app"}
       <section class="panel page-head">
-        <h1>Settings</h1>
-        <p class="card-hint">Comportement, voix, agents et apparence.</p>
+        <h1>Application</h1>
+        <p class="card-hint">Comportement, démarrage et capture.</p>
       </section>
       <GeneralSection {store} />
-      <ProvidersSection {store} />
-      <div id="cfg-voice"><VoiceSection {store} /></div>
       <div id="cfg-shortcuts"><ShortcutsSection /></div>
-      <AppearanceSection {store} />
       <UpdatesSection />
+    {:else if tab === "apparence"}
+      <section class="panel page-head">
+        <h1>Apparence</h1>
+        <p class="card-hint">Thème, popup et carte d'enregistrement.</p>
+      </section>
+      <AppearanceSection {store} />
+    {:else}
+      <section class="panel page-head">
+        <h1>Agents & Voix</h1>
+        <p class="card-hint">Agents, modèles IA et voix Fish Audio.</p>
+      </section>
+      <AgentSection {store} />
     {/if}
   </main>
 </div>
