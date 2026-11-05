@@ -14,6 +14,7 @@
   let stats = $state<DictationStats | null>(null);
   let error = $state<string | null>(null);
 
+  let exporting = $state(false);
   function refresh(): void {
     invoke<DictationStats>("dictation_stats")
       .then((s) => {
@@ -23,6 +24,24 @@
       .catch(() => {
         error = "Statistiques indisponibles (backend en cours).";
       });
+  }
+
+  async function exportJson(): Promise<void> {
+    exporting = true;
+    try {
+      const entries = await invoke<unknown[]>("list_history", { limit: 1000 });
+      const blob = new Blob([JSON.stringify(entries ?? [], null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `whisp-history-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      error = "Export impossible (backend en cours).";
+    } finally {
+      exporting = false;
+    }
   }
 
   const cards = $derived(
@@ -61,6 +80,7 @@
     <div class="row stats-foot">
       <span class="field-hint">{stats.total_entries} dictée{stats.total_entries > 1 ? "s" : ""} au total (150 mots/min).</span>
       <button type="button" class="ghost" onclick={refresh}>Actualiser</button>
+      <button type="button" class="ghost" onclick={exportJson} disabled={exporting}>{exporting ? "Export…" : "Export JSON"}</button>
     </div>
   </div>
   {#if error}

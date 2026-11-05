@@ -61,3 +61,9 @@ curl -fsSL https://raw.githubusercontent.com/djeel/whisp/main/install.sh | bash
 
 Dans l'app : Settings → Mises à jour → Vérifier → Installer. Ou relancer
 `install.sh` (idempotent : pull + rebuild + service).
+
+## Limites agent/voix
+
+- Agent : une seule requête à la fois (`agent_running`), Échap envoie Ctrl-C au tmux + coupe la voix. Prompt tronqué à 4000 chars (frontière char, jamais de multi-octet coupé).
+- Voix : Échap lève `voice_cancel`, le thread TTS s'arrête avant de jouer. Fichiers `/tmp/whisp-tts-*.mp3` nettoyés.
+- Flatpak : audio low-latency + global-shortcut + wl-copy via portals, tester avec `flatpak run --talk-name=org.freedesktop.portal.*`. Préfère le .deb/AppImage hors sandbox pour Hyprland.
