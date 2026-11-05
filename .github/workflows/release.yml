@@ -58,5 +58,5 @@ jobs:
           releaseBody: "Voir le changelog."
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
