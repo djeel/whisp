@@ -59,3 +59,25 @@ jobs:
           prerelease: false
           uploadUpdaterJson: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+  flatpak:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak-builder flatpak
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+      - name: Build Flatpak bundle
+        run: |
+          flatpak-builder --user --force-clean --repo=repo --ccache build-dir flatpak/com.whisp.app.yml
+          flatpak build-bundle repo whisp.flatpak com.whisp.app stable
+      - name: Upload Flatpak to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" whisp.flatpak --repo djeel/whisp --clobber

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.whisp.app</id>
+  <name>whisp</name>
+  <summary>Dictée vocale offline-first pour Linux</summary>
+  <description>
+    <p>
+      whisp transcrit votre voix localement (faster-whisper, rien ne quitte
+      votre PC) et colle le texte au curseur. Modes Message, Mail, Voice et
+      Agent (dictée-vers-agent via tmux), raffinage LLM local (Ollama) ou
+      cloud, accent du recorder qui suit votre fond d'écran Caelestia.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.whisp.app.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Popup d'enregistrement whisp</caption>
+    </screenshot>
+  </screenshots>
+  <provides>
+    <binary>whisp</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge" value="720"/>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <categories>
+    <category>Utility</category>
+    <category>AudioVideo</category>
+  </categories>
+  <keywords>
+    <keyword>dictation</keyword>
+    <keyword>voice</keyword>
+    <keyword>stt</keyword>
+    <keyword>transcription</keyword>
+  </keywords>
+  <url type="homepage">https://github.com/djeel/whisp</url>
+  <url type="bugtracker">https://github.com/djeel/whisp/issues</url>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <releases>
+    <release version="0.1.1" date="2026-11-05">
+      <description>
+        <p>Refonte Svelte 5 + backend durci (deadlines partout, async, watchdog). Raccourcis configurables. Logo Mochi unifié.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>

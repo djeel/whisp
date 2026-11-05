@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=whisp
+Comment=Dictée vocale offline-first (Superwhisper-like)
+Exec=whisp
+Icon=com.whisp.app
+Terminal=false
+Type=Application
+Categories=Utility;
+Keywords=dictation;voice;stt;transcription;
+StartupWMClass=whisp
+MimeType=x-scheme-handler/whisp;

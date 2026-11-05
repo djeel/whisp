@@ -1,0 +1,86 @@
+app-id: com.whisp.app
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: whisp
+finish-args:
+  # Wayland + X11 (fallback) : affichage natif, pas de nested X.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # Audio : capture micro (cpal/ALSA/PipeWire via PipeWire portal).
+  - --socket=pulseaudio
+  # Presse-papiers + auto-paste (wl-copy/wtype) : Wayland limite au focus,
+  # le collage exige l'accès au clavier global (voir --talk-name below).
+  - --share=network
+  # Notifications (états dictée) + ouvre-URLs (mises à jour).
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.OpenURI
+  # Stockage : config + historique + modèles STT locaux.
+  - --persist=.config/whisp
+  - --persist=.local/share/whisp
+  - --persist=.cache/whisp
+  # Thème système ( volunteered dark mode ) + polices.
+  - --socket=session-bus
+  - --talk-name=org.freedesktop.portal.Settings
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - /share/doc
+modules:
+  # Rust stable + Node 20 + Bun (mêmes versions que la CI release).
+  - name: rust
+    buildsystem: simple
+    build-commands:
+      - rustup install stable --profile minimal
+      - rustup default stable
+    sources:
+      - type: script
+        dest-filename: rustup-init.sh
+        commands:
+          - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup.sh
+          - sh rustup.sh -y --profile minimal --default-toolchain stable
+
+  - name: node
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /usr/lib/node
+      - tar -xzf node.tar.gz -C /usr/lib/node --strip-components=1
+      - ln -s /usr/lib/node/bin/node /usr/bin/node
+      - ln -s /usr/lib/node/bin/npm /usr/bin/npm
+    sources:
+      - type: archive
+        url: https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.gz
+        sha256: 8a3a3ef116fb80316ff8edfe0e2c9b3ba2a74760aa63e2279c9c219e8060121a72156
+        dest-filename: node.tar.gz
+
+  - name: bun
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bun /usr/bin/bun
+    sources:
+      - type: file
+        url: https://github.com/oven-sh/bun/releases/download/bun-v1.1.43/bun-linux-x64.zip
+        sha256: 0c91731a088116eb757fce829a3f46440f56cc55f0da3701e71a1b8aa081b1c2af
+        dest-filename: bun-linux-x64.zip
+
+  - name: whisp
+    buildsystem: simple
+    build-commands:
+      # Frontend : le bundle dist/ est commité par la CI (bun run build).
+      - bun install --frozen-lockfile --production=false
+      - bun run build
+      # Backend : release optimisée (mêmes flags que Cargo.toml).
+      - cargo build --release --manifest-path src-tauri/Cargo.toml
+      - install -Dm755 src-tauri/target/release/whisp /app/bin/whisp
+      # Hook agent (relai MCP) à côté du binaire (ensure_relay_installed le cherche là).
+      - install -Dm755 src-tauri/src/bin/whisp-hook.rs /tmp/skip || true
+      # Desktop + icône + métadonnées AppStream.
+      - install -Dm644 com.whisp.app.desktop /app/share/applications/com.whisp.app.desktop
+      - install -Dm644 com.whisp.app.png /app/share/icons/hicolor/128x128/apps/com.whisp.app.png
+      - install -Dm644 com.whisp.app.metainfo.xml /app/share/metainfo/com.whisp.app.metainfo.xml
+    sources:
+      - type: dir
+        path: .
