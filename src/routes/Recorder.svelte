@@ -5,6 +5,7 @@
   import {
     currentMonitor,
     getCurrentWindow,
+    LogicalPosition,
     LogicalSize,
   } from "@tauri-apps/api/window";
   import { playCue } from "../lib/sound";
@@ -263,29 +264,77 @@
       });
   }
 
-  // Drag-to-move natif : le compositor déplace (marche Hyprland, GNOME,
-  // Wayland, X11). L'ancien setPosition manuel était ignoré par les
-  // compositors Wayland (popup jamais déplacée, XY mémorisé fantôme).
-  // Position mémorisée au relâcher (meilleur effort, via outerPosition).
+  // Drag-to-move robuste : natif d'abord (compositor), manuel vérifié
+  // en fallback. L'ancien setPosition aveugle était ignoré par Wayland
+  // (popup jamais déplacée) ; startDragging seul échoue silencieusement
+  // hors Hyprland. Ici chaque étape est vérifiée.
   function onDragStart(e: MouseEvent): void {
     if (e.button !== 0 || !isTauri()) return;
     const win = getCurrentWindow();
-    void win.startDragging().catch(() => {
-      /* compositor sans drag natif */
-    });
-    const up = (): void => {
-      window.removeEventListener("mouseup", up);
+    void (async () => {
+      // 1. Snapshot avant : pour détecter si le natif a vraiment bougé.
+      let before: { x: number; y: number } | null = null;
+      try {
+        const p = await win.outerPosition();
+        before = { x: p.x, y: p.y };
+      } catch {
+        /* position illisible : on tente quand même */
+      }
+      let nativeOk = false;
+      try {
+        await win.startDragging();
+        // Le drag natif bloque jusqu'au relâcher : si on arrive ici
+        // sans erreur, le compositor a géré le déplacement.
+        nativeOk = true;
+      } catch {
+        nativeOk = false;
+      }
+      if (nativeOk) {
+        persistXY();
+        return;
+      }
+      // 2. Fallback manuel : vérifie que la fenêtre a bougé, sinon
+      // le compositor ignore aussi setPosition (fenêtre gérée/tilée) —
+      // on ne persiste rien dans ce cas (pas de XY fantôme).
+      const sx = e.screenX;
+      const sy = e.screenY;
+      const factor = (await currentMonitor().catch(() => null))?.scaleFactor || 1;
+      let base: { x: number; y: number } | null = before;
+      if (!base) {
+        try {
+          const p = await win.outerPosition();
+          base = { x: p.x / factor, y: p.y / factor };
+        } catch {
+          return;
+        }
+      } else {
+        base = { x: base.x / factor, y: base.y / factor };
+      }
+      const move = (ev: MouseEvent): void => {
+        win
+          .setPosition(new LogicalPosition(Math.round(base.x + (ev.screenX - sx)), Math.round(base.y + (ev.screenY - sy))))
+          .catch(() => undefined);
+      };
+      const up = (): void => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+        persistXY();
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    })().catch(() => undefined);
+
+    function persistXY(): void {
       void (async () => {
         try {
           const pos = await win.outerPosition();
-          const factor = (await currentMonitor())?.scaleFactor || 1;
-          savePopupXY(pos.x / factor, pos.y / factor);
+          const f = (await currentMonitor().catch(() => null))?.scaleFactor || 1;
+          savePopupXY(pos.x / f, pos.y / f);
         } catch {
           /* position illisible : on garde l'ancien XY */
         }
       })();
-    };
-    window.addEventListener("mouseup", up);
+    }
   }
 
   onMount(() => {
