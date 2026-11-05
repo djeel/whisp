@@ -12,7 +12,7 @@ FW_DIR="$HOME/.local/share/whisp/fw"
 BIN="$PREFIX/bin/whisp"
 SERVICE_NAME="whisp"
 
-if [ "${1:-}" = "--bundle" ]; then
+  if [ "${1:-}" = "--bundle" ]; then
   log() { printf '\033[1;34m[whisp]\033[0m %s\n' "$*"; }
   log "bundle précompilé (dernière release)..."
   command -v curl >/dev/null || { echo "curl requis"; exit 1; }
@@ -20,15 +20,37 @@ if [ "${1:-}" = "--bundle" ]; then
   [ -n "$TAG" ] || { echo "aucune release (utilise le mode source)"; exit 1; }
   DEB_URL="https://github.com/djeel/whisp/releases/download/$TAG/whisp_${TAG#v}-1_amd64.deb"
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-  curl -fsSL -o "$TMP/whisp.deb" "$DEB_URL"
-  # Extrait le binaire sans sudo (dpkg -x, pas dpkg -i).
-  dpkg -x "$TMP/whisp.deb" "$TMP/pkg" 2>/dev/null || { echo "dpkg requis (ou mode source)"; exit 1; }
-  WBIN="$(find "$TMP/pkg" -name whisp -type f -path '*bin*' | head -1)"
-  [ -n "$WBIN" ] || { echo "binaire introuvable dans le bundle"; exit 1; }
+  APPIMG_URL="https://github.com/djeel/whisp/releases/download/$TAG/whisp_${TAG#v}_amd64.AppImage"
+  # Taille attendue via HEAD (détecte un téléchargement tronqué : 63 Mo au
+  # lieu de 84 Mo vu en prod — squashfs illisible, "Failed to open").
+  EXPECTED="$(curl -fsSLI -o /dev/null -w '%{size_download}' "$APPIMG_URL" 2>/dev/null || echo 0)"
+  curl -fsSL --retry 3 -o "$TMP/whisp.AppImage" "$APPIMG_URL" || die "téléchargement AppImage impossible"
+  GOT="$(stat -c%s "$TMP/whisp.AppImage" 2>/dev/null || echo 0)"
+  if [ "$EXPECTED" -gt 0 ] && [ "$GOT" -lt "$EXPECTED" ]; then
+  die "AppImage tronquée ($GOT < $EXPECTED octets) — relance (réseau instable)"
+  fi
+  chmod +x "$TMP/whisp.AppImage"
+   # FUSE absent ? --appimage-extract marche sans FUSE (vu en prod GNOME sans libfuse2).
+  # Extraction DANS $TMP (jamais dans le cwd, nettoyé par le trap).
+  (cd "$TMP" && "$TMP/whisp.AppImage" --appimage-extract >/dev/null 2>&1)
+  if [ -x "$TMP/squashfs-root/AppRun" ]; then
+  WBIN="$TMP/squashfs-root/usr/bin/whisp"
+  [ -x "$WBIN" ] || WBIN="$TMP/squashfs-root/AppRun"
   install -Dm755 "$WBIN" "$BIN"
-  log "binaire $TAG installé. Deps + service : relance sans --bundle, ou service manuel."
+  log "binaire $TAG installé (extrait de l'AppImage, sans FUSE). Deps + service : relance sans --bundle, ou service manuel."
+  elif command -v dpkg >/dev/null; then
+  # Repli .deb : extraction sans sudo (dpkg -x, pas dpkg -i).
+  curl -fsSL --retry 3 -o "$TMP/whisp.deb" "$DEB_URL" || die "téléchargement .deb impossible"
+  dpkg -x "$TMP/whisp.deb" "$TMP/pkg" 2>/dev/null || die "extraction .deb impossible"
+  WBIN="$(find "$TMP/pkg" -name whisp -type f -path '*bin*' | head -1)"
+  [ -n "$WBIN" ] || die "binaire introuvable dans le bundle"
+  install -Dm755 "$WBIN" "$BIN"
+  log "binaire $TAG installé (extrait du .deb). Deps + service : relance sans --bundle, ou service manuel."
+  else
+  die "ni extraction AppImage (FUSE/extraction ?) ni dpkg — utilise le mode source"
+  fi
   exit 0
-fi
+ fi
 
 log() { printf '\033[1;34m[whisp]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[whisp]\033[0m %s\n' "$*" >&2; exit 1; }
