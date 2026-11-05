@@ -129,6 +129,13 @@ fn check_inner() -> UpdateInfo {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
+/// Dernier résultat `check_inner` + instant : l'API GitHub anonyme est
+/// limitée à 60 req/h/IP et le frontend poll au mount de Settings.
+/// 1 h de cache mémoire, aucune persistance.
+static LAST_CHECK: std::sync::Mutex<Option<(std::time::Instant, UpdateInfo)>> =
+    std::sync::Mutex::new(None);
+const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// Local app version (from Cargo/tauri.conf.json).
 #[tauri::command]
 pub fn app_version() -> String {
@@ -138,7 +145,19 @@ pub fn app_version() -> String {
 /// Compare local version with the latest GitHub release.
 #[tauri::command]
 pub fn check_updates() -> UpdateInfo {
-    check_inner()
+    if let Some((at, cached)) = LAST_CHECK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
+        if at.elapsed() < CACHE_TTL {
+            return cached;
+        }
+    }
+    let info = check_inner();
+    *LAST_CHECK.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((std::time::Instant::now(), info.clone()));
+    info
 }
 
 #[cfg(test)]

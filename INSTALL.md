@@ -3,7 +3,7 @@
 ## Recommandé : Flatpak (Flathub ou release GitHub)
 
 ```sh
-# Depuis la release GitHub (v0.1.1+) :
+# Depuis la release GitHub (v0.1.2+) :
 flatpak install --user whisp.flatpak
 flatpak run com.whisp.app
 ```
@@ -16,14 +16,14 @@ autorisez l'accès au premier lancement.
 ## Alternative : .deb (Debian/Ubuntu)
 
 ```sh
-sudo dpkg -i whisp_0.1.1_amd64.deb
+sudo dpkg -i whisp_0.1.2_amd64.deb
 ```
 
 ## Alternative : AppImage (sans installation)
 
 ```sh
-chmod +x whisp_0.1.1_amd64.AppImage
-./whisp_0.1.1_amd64.AppImage
+chmod +x whisp_0.1.2_amd64.AppImage
+./whisp_0.1.2_amd64.AppImage
 ```
 
 Sans FUSE : `./whisp.AppImage --appimage-extract` puis lancer

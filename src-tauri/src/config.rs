@@ -1,7 +1,7 @@
 //! App config for whisp (`~/.config/whisp/config.json`).
 //!
 //! Small JSON file shared between backend and frontend: local STT model
-//! (`small` by default, `medium`/`base` opt-in), recorder popup position and
+//! (`medium` by default, `small`/`base` for speed), recorder popup position and
 //! theme. Unknown keys are ignored on read; writes merge into the loaded
 //! file so partial `set_config` calls never drop other fields.
 
@@ -160,6 +160,21 @@ fn load_unlocked() -> AppConfig {
     cfg
 }
 
+/// Accept only `http(s)://host...` URLs. Rejects `file://`, bare hostnames
+/// and whitespace so a bad paste can't turn the local Ollama/chat calls
+/// into SSRF against link-local metadata & co.
+fn validate_http_url(field: &str, v: &str) -> Result<(), String> {
+    let v = v.trim();
+    let rest = v
+        .strip_prefix("http://")
+        .or_else(|| v.strip_prefix("https://"))
+        .ok_or_else(|| format!("{field} must start with http:// or https:// (got '{v}')"))?;
+    if rest.is_empty() || v.contains(char::is_whitespace) {
+        return Err(format!("{field} needs an http(s) URL with a host (got '{v}')"));
+    }
+    Ok(())
+}
+
 /// Merge a partial update into the stored file. `stt_model` is validated
 /// (`small`/`medium`/`base`); other fields are opaque UI preferences.
 pub fn set(
@@ -262,6 +277,9 @@ pub fn set(
     if active_pills.is_some() {
         cfg.active_pills = active_pills;
     }
+    if let Some(u) = &ollama_url {
+        validate_http_url("ollama_url", u)?;
+    }
     if ollama_url.is_some() {
         cfg.ollama_url = ollama_url;
     }
@@ -290,6 +308,9 @@ pub fn set(
     }
     if chat_model.is_some() {
         cfg.chat_model = chat_model;
+    }
+    if let Some(u) = &chat_base_url {
+        validate_http_url("chat_base_url", u)?;
     }
     if chat_base_url.is_some() {
         cfg.chat_base_url = chat_base_url;
@@ -704,6 +725,17 @@ mod tests {
             assert_eq!(accent_custom_hex(), "#a9cae8");
             assert_eq!(accent_source_name(), "custom");
         });
+    }
+
+    #[test]
+    fn url_validation_rejects_non_http() {
+        // `set` valide AVANT le lock : aucun fichier touché quand rejeté.
+        assert!(validate_http_url("ollama_url", "file:///etc/passwd").is_err());
+        assert!(validate_http_url("ollama_url", "localhost:11434").is_err());
+        assert!(validate_http_url("ollama_url", "http://").is_err());
+        assert!(validate_http_url("ollama_url", "https://ollama local/v1").is_err());
+        assert!(validate_http_url("ollama_url", "http://127.0.0.1:11434").is_ok());
+        assert!(validate_http_url("chat_base_url", "https://api.openai.com/v1").is_ok());
     }
 
     #[test]

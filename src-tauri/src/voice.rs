@@ -7,7 +7,7 @@
 //! voice selection alone rather than fake sliders.
 //!
 //! Playback: decoded bytes are written to a temp file and played with the
-//! first available player (`mpv` → `ffplay` → `paplay`/`aplay` for wav).
+//! first available player (`mpv` → `ffplay` → `mpg123`).
 //! Agent voice reply (`agent_voice` config): when on, Agent dictations are read
 //! back after the agent request is queued (see `maybe_speak_agent`).
 
@@ -67,8 +67,9 @@ fn play_mp3(bytes: &[u8]) -> Result<(), String> {
     let attempts: &[&[&str]] = &[
         &["mpv", "--no-video", "--really-quiet"],
         &["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],
+        &["mpg123", "-q"],
     ];
-    let mut last_err = "no player found (mpv/ffplay)".to_string();
+    let mut last_err = "no audio player found (install mpv, ffplay or mpg123)".to_string();
     for argv in attempts {
         if have_bin(argv[0]) {
             let mut args: Vec<&str> = argv[1..].to_vec();
@@ -197,7 +198,7 @@ pub fn maybe_speak_voice_reply(question: &str, emit: impl Fn(bool) + Send + 'sta
         .ok();
 }
 
-/// Tue la lecture TTS en cours (mpv/ffplay). Appelé par Échap : la réponse
+/// Tue la lecture TTS en cours (mpv/ffplay/mpg123). Appelé par Échap : la réponse
 /// vocale s'arrête net, pas de son qui traîne après la fermeture.
  pub fn kill_playback() {
      // Ciblé uniquement : le pattern matche nos fichiers /tmp/whisp-tts-*.mp3.
