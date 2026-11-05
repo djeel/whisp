@@ -649,10 +649,8 @@ textarea {
 
 
 
-input:focus,
-textarea:focus {
-  border-color: var(--muted);
-}
+/* Pas de border-color au focus : l'outline :focus-visible suffit.
+   (border + outline superposés = double contour.) */
 
 .field-label {
   display: flex;
@@ -794,21 +792,18 @@ div.check-row {
   border-color: var(--accent);
 }
 
-.switch-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  display: block;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--accent-text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  transition: transform 150ms ease, background-color 150ms ease;
-}
-.switch:not(.on) .switch-knob {
-  background: var(--muted);
-}
+ .switch-knob {
+   position: absolute;
+   top: 2px;
+   left: 2px;
+   display: block;
+   width: 16px;
+   height: 16px;
+   border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 150ms ease;
+ }
 
 /* Switch whisp 40x22px AA conservé (coucou = 36x20px — écart signalé). */
 /* Raccourcis (copié de coucou settings.css : .subhead/.shortcut-list/.keycap/.tag). */
@@ -873,12 +868,6 @@ input[type="range"] {
 
 
 /* ---------- Polish global : ellipsis, STA, empty, spinner ---------- */
-
-.brand-logo {
-  display: block;
-  flex-shrink: 0;
-  color: var(--text);
-}
 
 .btn-spinner {
   display: inline-block;

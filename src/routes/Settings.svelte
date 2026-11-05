@@ -62,7 +62,6 @@
 <div class="settings">
   <aside class="side">
     <div class="brand">
-      <img src="/logo.svg" alt="" width={18} height={18} class="brand-logo" aria-hidden="true" />
       <span>whisp</span>
     </div>
     <nav class="side-nav" aria-label="Sections">
