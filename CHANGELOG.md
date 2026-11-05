@@ -16,7 +16,7 @@
 - install.sh --bundle : vérif taille anti-tronçon, extraction AppImage sans FUSE, repli .deb.
 - Updater : `latest.json` signé publié (clé minisign dédiée, `createUpdaterArtifacts`).
 
- ## v0.1.1 — Refonte Svelte + stabilisation
+## v0.1.1 — Refonte Svelte + stabilisation
 
 ### Frontend : React → Svelte 5
 - Port complet vers Svelte 5 (runes `$state`/`$derived`/`$effect`), zéro React restant.
