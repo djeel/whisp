@@ -70,13 +70,22 @@ fn check_inner() -> UpdateInfo {
         .and_then(|r| r.error_for_status().map_err(|e| format!("GitHub: {e}")))
         .and_then(|r| r.json().map_err(|e| format!("réponse GitHub: {e}")));
     match resp {
-        Err(message) => UpdateInfo {
-            current,
-            latest: None,
-            update_available: false,
-            url: None,
-            message: Some(message),
-        },
+        Err(message) => {
+            // 404 = aucune release publiée (dépôt jeune) : message clair,
+            // pas l'URL brute de l'API.
+            let friendly = if message.contains("404") {
+                "Aucune release publiée pour le moment — vous êtes sur une version dev.".to_string()
+            } else {
+                message
+            };
+            UpdateInfo {
+                current,
+                latest: None,
+                update_available: false,
+                url: None,
+                message: Some(friendly),
+            }
+        }
         Ok(v) => {
             let tag = v
                 .get("tag_name")
