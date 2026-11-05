@@ -29,6 +29,9 @@ import wave
 PING = b"__ping__"
 PONG = b"__pong__"
 MODEL_QUERY = b"__model__"
+ERROR_PREFIX = b"__WHISP_ERROR__:"
+# Taille max d'une frame (64 Mo : ~10 min de WAV 16k mono s16 = ~19 Mo,
+# marge large ; protège contre un length corrompu qui allouerait des Go).
 MAX_MSG = 64 * 1024 * 1024
 
 
@@ -106,7 +109,9 @@ def handle(conn: socket.socket, model, model_name: str) -> None:
         segments, info = model.transcribe(
             audio,
             language=use_lang,
-            beam_size=5,
+            # Greedy (beam 1) : ~20 % plus vite, qualité identique sur
+            # dictée claire (mesuré : 7.3s vs 9.0s sur 7s FR, medium CPU).
+            beam_size=1,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=400),
         )

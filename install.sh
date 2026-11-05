@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # whisp — one-shot installer (CachyOS/Arch + Hyprland/Wayland).
-# Usage: curl -fsSL https://raw.githubusercontent.com/djeel/whisp/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/djeel/whisp/main/install.sh | bash [--bundle]
+#   --bundle : installe le .deb précompilé de la dernière release (rapide).
+#   défaut   : clone + build source (long, développeurs).
 set -euo pipefail
 
 REPO="${WHISP_REPO:-https://github.com/djeel/whisp.git}"
@@ -9,6 +11,24 @@ SRC_DIR="${WHISP_SRC:-$HOME/.local/share/whisp-app}"
 FW_DIR="$HOME/.local/share/whisp/fw"
 BIN="$PREFIX/bin/whisp"
 SERVICE_NAME="whisp"
+
+if [ "${1:-}" = "--bundle" ]; then
+  log() { printf '\033[1;34m[whisp]\033[0m %s\n' "$*"; }
+  log "bundle précompilé (dernière release)..."
+  command -v curl >/dev/null || { echo "curl requis"; exit 1; }
+  TAG="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/djeel/whisp/releases/latest | sed 's#.*/##')"
+  [ -n "$TAG" ] || { echo "aucune release (utilise le mode source)"; exit 1; }
+  DEB_URL="https://github.com/djeel/whisp/releases/download/$TAG/whisp_${TAG#v}-1_amd64.deb"
+  TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  curl -fsSL -o "$TMP/whisp.deb" "$DEB_URL"
+  # Extrait le binaire sans sudo (dpkg -x, pas dpkg -i).
+  dpkg -x "$TMP/whisp.deb" "$TMP/pkg" 2>/dev/null || { echo "dpkg requis (ou mode source)"; exit 1; }
+  WBIN="$(find "$TMP/pkg" -name whisp -type f -path '*bin*' | head -1)"
+  [ -n "$WBIN" ] || { echo "binaire introuvable dans le bundle"; exit 1; }
+  install -Dm755 "$WBIN" "$BIN"
+  log "binaire $TAG installé. Deps + service : relance sans --bundle, ou service manuel."
+  exit 0
+fi
 
 log() { printf '\033[1;34m[whisp]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[whisp]\033[0m %s\n' "$*" >&2; exit 1; }

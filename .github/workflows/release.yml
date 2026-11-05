@@ -1,0 +1,60 @@
+name: release
+
+# Publie les bundles signés + latest.json à chaque tag `v*`.
+# L'app (plugin updater) poll `.../releases/latest/download/latest.json`.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versions sync check
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          for f in package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml; do
+            grep -q "\"\?version\"\?[\"']\?[:=] *\"$TAG\"" "$f" \
+              || grep -q "version = \"$TAG\"" "$f" \
+              || { echo "::error::tag $GITHUB_REF_NAME but $f is not $TAG"; exit 1; }
+          done
+
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: System deps (Tauri Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libasound2-dev libpipewire-0.3-dev libssl-dev
+
+      - name: Frontend deps
+        run: bun install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "whisp ${{ github.ref_name }}"
+          releaseBody: "Voir le changelog."
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

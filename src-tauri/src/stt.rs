@@ -45,7 +45,7 @@ audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 _cuda = False  # CUDA disabled: libcublas missing on this host; CPU int8 is reliable
 m = WhisperModel(model, device="cpu", compute_type="int8")
 lang = None if language in ("auto", "") else language
-segments, _ = m.transcribe(audio, language=lang, beam_size=5,
+segments, _ = m.transcribe(audio, language=lang, beam_size=1,
                             vad_filter=True,
                             vad_parameters=dict(min_silence_duration_ms=400))
 print("".join(s.text for s in segments), flush=True)
@@ -117,14 +117,19 @@ fn write_frame(conn: &mut std::os::unix::net::UnixStream, payload: &[u8]) -> Res
         .map_err(|e| format!("daemon write: {e}"))
 }
 
+/// Timeout court (ping/modèle) : le daemon chaud répond en ms ; 5 s, c'est
+/// déjà un daemon gelé — le caller bascule vite sur le fallback one-shot
+/// au lieu de figer la dictée.
+const DAEMON_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// One-shot request/response on a fresh connection. Short timeout: ping and
 /// model queries must answer immediately from a warm daemon.
 fn daemon_roundtrip(payload: &[u8]) -> Result<Vec<u8>, String> {
     let sock = daemon_sock_path();
     let mut conn = std::os::unix::net::UnixStream::connect(&sock)
         .map_err(|e| format!("daemon connect {sock:?}: {e}"))?;
-    conn.set_read_timeout(Some(Duration::from_secs(5)))
-        .and(conn.set_write_timeout(Some(Duration::from_secs(5))))
+    conn.set_read_timeout(Some(DAEMON_PROBE_TIMEOUT))
+        .and(conn.set_write_timeout(Some(DAEMON_PROBE_TIMEOUT)))
         .map_err(|e| format!("daemon timeout: {e}"))?;
     write_frame(&mut conn, payload)?;
     read_frame(&mut conn)
@@ -166,7 +171,9 @@ pub fn ensure_daemon(model: &str) -> Result<(), String> {
 
     // Re-check under the lock (a peer may have spawned it meanwhile).
     {
-        let state = DAEMON.lock().map_err(|_| "daemon lock poisoned".to_string())?;
+        let state = DAEMON
+            .lock()
+            .map_err(|_| "daemon lock poisoned".to_string())?;
         if state.model.is_some() {
             drop(state);
             if let Ok(resp) = daemon_roundtrip(PING) {
@@ -176,7 +183,26 @@ pub fn ensure_daemon(model: &str) -> Result<(), String> {
             }
         }
     }
-    let mut state = DAEMON.lock().map_err(|_| "daemon lock poisoned".to_string())?;
+    // Un peer est peut-être en train de démarrer le daemon (model load de
+    // plusieurs dizaines de secondes) : ne pas sérialiser derrière son lock,
+    // poller la readiness sans lock à la place.
+    let mut state = match DAEMON.try_lock() {
+        Ok(g) => g,
+        Err(_) => {
+            let ready = std::time::Instant::now();
+            loop {
+                if let Ok(resp) = daemon_roundtrip(PING) {
+                    if resp == PONG && daemon_running_model().as_deref() == Some(model) {
+                        return Ok(());
+                    }
+                }
+                if ready.elapsed() > Duration::from_secs(180) {
+                    return Err("STT daemon startup timeout (model load?)".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(300));
+            }
+        }
+    };
 
     // Wrong-model daemon (ours or a leftover): stop it before respawning.
     if daemon_running_model().as_deref() != Some(model) {
@@ -231,7 +257,9 @@ pub fn ensure_daemon(model: &str) -> Result<(), String> {
     loop {
         match child.try_wait().map_err(|e| format!("daemon wait: {e}"))? {
             Some(status) => {
-                return Err(format!("STT daemon exited during startup (status {status})"));
+                return Err(format!(
+                    "STT daemon exited during startup (status {status})"
+                ));
             }
             None => {}
         }
@@ -264,6 +292,8 @@ fn transcribe_via_daemon(
     } else {
         language
     };
+    // 1 alloc exacte : `with_capacity` dimensionné (1 + lang + wav) évite
+    // le regrow exponentiel (~2× wav copié) du `push`/`extend` naïf.
     let mut payload = Vec::with_capacity(1 + lang.len() + wav.len());
     payload.push(lang.len() as u8);
     payload.extend_from_slice(lang.as_bytes());
@@ -273,8 +303,12 @@ fn transcribe_via_daemon(
     let mut conn = std::os::unix::net::UnixStream::connect(&sock)
         .map_err(|e| format!("daemon connect {sock:?}: {e}"))?;
     let secs = (pcm.len() as u64 / 16_000) * 2 + 30;
+    // Borne haute 600 s : la formule `2×durée + 30 s` est juste pour les
+    // dictées normales, mais un ring de 10 min donnerait 1230 s — un daemon
+    // gelé parquerait le thread `stop` 20 min. 600 s couvre 4 min d'audio.
+    let secs = secs.clamp(30, 600);
     conn.set_read_timeout(Some(Duration::from_secs(secs)))
-        .and(conn.set_write_timeout(Some(Duration::from_secs(secs))))
+        .and(conn.set_write_timeout(Some(Duration::from_secs(30))))
         .map_err(|e| format!("daemon timeout: {e}"))?;
     write_frame(&mut conn, &payload)?;
     let resp = read_frame(&mut conn)?;
@@ -298,6 +332,7 @@ pub fn transcribe_partial(pcm: &[f32]) -> Option<String> {
         return None; // < 1 s of audio: nothing worth showing
     }
     let wav = encode_wav_16k_mono(pcm);
+    // 1 alloc exacte : préfixe 11 o + wav, pas de regrow.
     let mut payload = Vec::with_capacity(11 + wav.len());
     payload.extend_from_slice(b"__partial__");
     payload.extend_from_slice(&wav);
@@ -376,7 +411,11 @@ fn transcribe_one_shot(pcm: &[f32], language: &str, model: &str) -> Result<Trans
     let wav = encode_wav_16k_mono(pcm);
     let tmp = tempfile_path("whisp-stt-", ".wav");
     std::fs::write(&tmp, &wav).map_err(|e| format!("write temp wav: {e}"))?;
-    let lang = if language.is_empty() { "auto" } else { language };
+    let lang = if language.is_empty() {
+        "auto"
+    } else {
+        language
+    };
 
     let out = std::process::Command::new(fw_python())
         .args(["-c", STT_SIDECAR_PY])
@@ -415,7 +454,11 @@ fn tempfile_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
 
 fn fish_key_file() -> std::path::PathBuf {
     dirs::config_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp")).join(".config"))
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join(".config")
+        })
         .join("whisp/fish_audio.key")
 }
 
@@ -482,9 +525,15 @@ pub struct CloudFishAudio {
 
 impl Default for CloudFishAudio {
     fn default() -> Self {
-        Self {
-            client: reqwest::blocking::Client::new(),
-        }
+        // Timeout explicite (120 s) : un upload WAV + ASR cloud peut
+        // prendre ~1 min sur longue dictée ; sans borne, un réseau
+        // pendu fige `stop` indéfiniment (thread connexion parké).
+        // `Client::new()` = timeout None = jamais de borne.
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(120))
+            .build()
+            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+        Self { client }
     }
 }
 
@@ -514,7 +563,9 @@ impl Stt for CloudFishAudio {
             .map_err(|e| format!("fish.audio decode: {e}"))?;
         Ok(Transcription {
             text: clean_fish_text(
-                resp.get("text").and_then(|v| v.as_str()).unwrap_or_default(),
+                resp.get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default(),
             ),
             language: language.to_string(),
             engine: "fish.audio:transcribe-1-pro".to_string(),
@@ -615,7 +666,11 @@ pub fn select_stt(kind: SttKind) -> SelectedStt {
 /// Append `content` to a file (used for debug dumps).
 #[allow(dead_code)]
 pub fn append_debug_log(path: &std::path::Path, content: &str) {
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         let _ = writeln!(f, "{content}");
     }
 }

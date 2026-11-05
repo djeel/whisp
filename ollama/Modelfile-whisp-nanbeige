@@ -1,0 +1,7 @@
+# Variante locale Nanbeige 4.2-3B pour whisp : ctx 2048 (suffit pour du
+# raffinage de dictée) → tient à 100 % en VRAM sur 6 Go (RTX 3060 laptop).
+# Le Modelfile upstream force un template avec bloc <think> vide ; whisp passe
+# déjà `think: false` + `num_ctx: 2048` côté requêtes (src-tauri/src/llm.rs).
+FROM ndavat/Nanbeige4.2-3B
+PARAMETER num_ctx 2048
+PARAMETER temperature 0.1

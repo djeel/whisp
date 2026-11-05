@@ -117,7 +117,9 @@ pub fn normalize_event(name: &str) -> &str {
 pub fn valid_agent(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 24
-        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// One event, ready to forward (`line` already ends with `\n`).
@@ -158,7 +160,13 @@ pub fn prepare_payload(
     for field in DROPPED_FIELDS {
         map.remove(*field);
     }
-    if map.get("cwd").and_then(Value::as_str).map(str::is_empty).unwrap_or(true) && !cwd.is_empty() {
+    if map
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(str::is_empty)
+        .unwrap_or(true)
+        && !cwd.is_empty()
+    {
         map.insert("cwd".into(), Value::String(cwd.to_string()));
     }
     truncate_strings(&mut payload);
@@ -172,10 +180,16 @@ pub fn prepare_payload(
 /// agents use. Never overwrites a field the payload already has.
 fn fill_tool_fields(map: &mut Map<String, Value>) {
     let call = map.get("toolCall").and_then(Value::as_object).cloned();
-    let Some(call) = call else { return; };
+    let Some(call) = call else {
+        return;
+    };
     if !map.contains_key("tool_name") {
         for k in ["toolName", "name"] {
-            if let Some(s) = call.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            if let Some(s) = call
+                .get(k)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
                 map.insert("tool_name".into(), Value::String(s.to_string()));
                 break;
             }
@@ -191,7 +205,12 @@ fn fill_tool_fields(map: &mut Map<String, Value>) {
             }
         }
     }
-    if map.get("session_id").and_then(Value::as_str).map(str::is_empty).unwrap_or(true) {
+    if map
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::is_empty)
+        .unwrap_or(true)
+    {
         for k in ["sessionId", "sessionID"] {
             if let Some(s) = map.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()) {
                 map.insert("session_id".into(), Value::String(s.to_string()));
@@ -208,7 +227,10 @@ fn refine(event: &str, map: &Map<String, Value>) -> String {
         .and_then(Value::as_str)
         .is_some_and(|s| s.eq_ignore_ascii_case("error"))
         || map.get("error").is_some_and(|v| !v.is_null())
-        || map.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+        || map
+            .get("is_error")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     if failed {
         match event {
             "PostToolUse" => return "PostToolUseFailure".to_string(),
@@ -253,7 +275,11 @@ pub fn normalize_for_front(line: &str) -> Option<Value> {
     map.insert("event".into(), Value::String(name));
     let agent = ["whisp_agent", "coucou_agent", "agent"]
         .iter()
-        .filter_map(|k| map.get(*k).and_then(Value::as_str).filter(|s| valid_agent(s)))
+        .filter_map(|k| {
+            map.get(*k)
+                .and_then(Value::as_str)
+                .filter(|s| valid_agent(s))
+        })
         .next()
         .map(str::to_string)
         .unwrap_or_else(|| "agent".to_string());
@@ -263,12 +289,11 @@ pub fn normalize_for_front(line: &str) -> Option<Value> {
     }
     Some(payload)
 }
-/// Single forward point for socket lines: canonical island handling (pills +
-/// `whisp://agent` snapshot event) plus the raw normalized payload, so older
-/// listeners keep working.
+/// Single forward point for socket lines: event vers le module Agent inline
+/// de la popup (`whisp://agent` + `whisp://agent-event`).
 fn forward_to_front(app: &tauri::AppHandle, payload: &Value) {
-    super::island::handle_event(app, payload.clone());
-    let _ = app.emit("whisp://agent-raw", payload);
+    let _ = app.emit("whisp://agent", payload);
+    let _ = app.emit("whisp://agent-event", payload);
 }
 
 /// Slightly under the relay's own 110 s wait, so the app always answers first.
@@ -289,7 +314,9 @@ enum Reply {
 }
 
 /// Permission requests waiting on a human click, by `request_id`.
-pub struct PendingApprovals(pub std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<Reply>>>);
+pub struct PendingApprovals(
+    pub std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<Reply>>>,
+);
 
 impl Default for PendingApprovals {
     fn default() -> Self {
@@ -364,7 +391,10 @@ fn handle_connection(app: &tauri::AppHandle, stream: std::os::unix::net::UnixStr
                     "whisp-agents: event={} agent={} session={}",
                     payload.get("event").and_then(Value::as_str).unwrap_or("?"),
                     payload.get("agent").and_then(Value::as_str).unwrap_or("?"),
-                    payload.get("session_id").and_then(Value::as_str).unwrap_or(""),
+                    payload
+                        .get("session_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
                 );
                 if payload.get("event").and_then(Value::as_str) == Some("PermissionRequest") {
                     handle_permission(app, reader.get_mut(), payload);
@@ -381,7 +411,11 @@ fn handle_connection(app: &tauri::AppHandle, stream: std::os::unix::net::UnixStr
 fn next_request_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(1);
-    format!("{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// A `PermissionRequest`: give the island a card, ACK fast, then wait for the
@@ -392,7 +426,10 @@ fn handle_permission(
     mut payload: Value,
 ) {
     use std::io::Write;
-    let agent = payload.get("agent").and_then(Value::as_str).unwrap_or("agent");
+    let agent = payload
+        .get("agent")
+        .and_then(Value::as_str)
+        .unwrap_or("agent");
     // Agents whose decisions the island cannot give: decline at once, silently,
     // so the agent asks in its own terminal (documented in takes_decisions).
     if !takes_decisions(agent) {
@@ -409,22 +446,12 @@ fn handle_permission(
     }
     payload["request_id"] = Value::String(id.clone());
     forward_to_front(app, &payload);
-    let card = super::island::approval_card(&payload, &id);
-    let queued = super::island::push_approval(app, card);
-    // The relay's short ack window closes in 800 ms; it only waits the full
-    // 110 s when the card really is up.
-    if queued.is_ok() {
-        send_reply(app, &id, Reply::Ack, true);
-    } else {
-        // Duplicate or queue full: terminal takes over, drop without a reply.
-        send_reply(app, &id, Reply::Decline, false);
-        super::island::resolve_approval(app, &id);
-        return;
-    }
+    // Plus d'island : ACK direct, l'agent demande dans son terminal.
+    // (Les PermissionRequest avec décision inline arriveront via agent_last_output.)
+    send_reply(app, &id, Reply::Ack, true);
     let decision = wait_for_decision(&rx);
     app.try_state::<PendingApprovals>()
         .map(|p| p.0.lock().map(|mut m| m.remove(&id)).ok());
-    super::island::resolve_approval(app, &id);
     match decision {
         Some(d) => {
             let mut line = d;
@@ -458,11 +485,13 @@ fn wait_for_decision(rx: &std::sync::mpsc::Receiver<Reply>) -> Option<String> {
 /// later decision (ack); otherwise the slot closes (decision/decline).
 fn send_reply(app: &tauri::AppHandle, request_id: &str, reply: Reply, keep: bool) {
     let sender = app.try_state::<PendingApprovals>().and_then(|pending| {
-        pending
-            .0
-            .lock()
-            .ok()
-            .and_then(|mut m| if keep { m.get(request_id).cloned() } else { m.remove(request_id) })
+        pending.0.lock().ok().and_then(|mut m| {
+            if keep {
+                m.get(request_id).cloned()
+            } else {
+                m.remove(request_id)
+            }
+        })
     });
     match sender {
         Some(tx) => {

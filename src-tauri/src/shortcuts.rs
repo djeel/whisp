@@ -33,7 +33,7 @@ pub fn all_shortcuts() -> Vec<ShortcutInfo> {
             id: "cycle-mode".to_string(),
             label: "Changer de mode".to_string(),
             keys: "Ctrl + Alt + M".to_string(),
-            description: "Cycle Message → Super → Mail → Note → Voice → Meeting".to_string(),
+            description: "Cycle Message → Mail → Voice → Agent".to_string(),
         },
         ShortcutInfo {
             id: "cancel".to_string(),
@@ -46,26 +46,16 @@ pub fn all_shortcuts() -> Vec<ShortcutInfo> {
 
 /// Reload the Hyprland config so edited binds apply now.
 /// `hyprctl reload` exit code is surfaced; missing hyprctl = clear error.
-fn reload_hyprland_inner() -> Result<String, String> {
-    let out = std::process::Command::new("hyprctl")
-        .arg("reload")
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "hyprctl introuvable (Hyprland requis)".to_string()
-            } else {
-                format!("hyprctl: {e}")
-            }
-        })?;
-    if out.status.success() {
-        Ok("Configuration Hyprland rechargée.".to_string())
-    } else {
-        Err(format!(
-            "hyprctl reload: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ))
+ fn reload_hyprland_inner() -> Result<String, String> {
+    // Deadline 15 s : hyprctl coincé (service sans WAYLAND_DISPLAY) = erreur.
+    match crate::run_timed_out(&["hyprctl", "reload"], std::time::Duration::from_secs(15)) {
+        Ok(_) => Ok("Configuration Hyprland rechargée.".to_string()),
+        Err(e) if e.contains("No such file") || e.contains("spawn hyprctl") => {
+            Err("hyprctl introuvable (Hyprland requis)".to_string())
+        }
+        Err(e) => Err(format!("hyprctl reload: {e}")),
     }
-}
+ }
 
 // ---------------------------------------------------------------------------
 // Tauri commands

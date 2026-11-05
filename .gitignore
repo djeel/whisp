@@ -3,3 +3,11 @@ dist/
 node_modules/
 *.log
 .DS_Store
+.omp/ecosystem/claims/
+.omp/ecosystem/channels/
+.omp/ecosystem/dm/
+.omp/ecosystem/presence/
+!.omp/ecosystem/claims/.gitkeep
+!.omp/ecosystem/channels/*/.gitkeep
+!.omp/ecosystem/dm/.gitkeep
+!.omp/ecosystem/presence/.gitkeep

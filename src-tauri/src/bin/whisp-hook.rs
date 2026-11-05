@@ -17,14 +17,19 @@ fn socket_path() -> std::path::PathBuf {
     {
         return dir.join("whisp-agents.sock");
     }
-    let uid = std::env::var("UID").ok().and_then(|u| u.parse::<u32>().ok()).unwrap_or(1000);
+    let uid = std::env::var("UID")
+        .ok()
+        .and_then(|u| u.parse::<u32>().ok())
+        .unwrap_or(1000);
     std::path::PathBuf::from(format!("/tmp/whisp-agents-{uid}.sock"))
 }
 
 fn valid_agent(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 24
-        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// Agents whose permission requests the island can answer: Claude Code
@@ -65,9 +70,7 @@ pub fn stdout_reply(
                 _ => None,
             };
             match word {
-                Some(word) => Some(
-                    serde_json::json!({ "permissionDecision": word }).to_string(),
-                ),
+                Some(word) => Some(serde_json::json!({ "permissionDecision": word }).to_string()),
                 None if agent == "copilot" => {
                     Some(serde_json::json!({ "permissionDecision": "ask" }).to_string())
                 }
@@ -137,7 +140,10 @@ fn answers_fit(
                     .collect()
             })
             .unwrap_or_default();
-        let multi = item.get("multiSelect").and_then(|m| m.as_bool()).unwrap_or(false);
+        let multi = item
+            .get("multiSelect")
+            .and_then(|m| m.as_bool())
+            .unwrap_or(false);
         match answers.get(text) {
             Some(serde_json::Value::String(pick)) if !multi => labels.contains(&pick.as_str()),
             Some(serde_json::Value::Array(picks)) if multi => {
@@ -145,13 +151,14 @@ fn answers_fit(
                 let mut seen = picks.clone();
                 seen.sort_unstable();
                 seen.dedup();
-                !picks.is_empty() && seen.len() == picks.len() && picks.iter().all(|p| labels.contains(p))
+                !picks.is_empty()
+                    && seen.len() == picks.len()
+                    && picks.iter().all(|p| labels.contains(p))
             }
             _ => false,
         }
     })
 }
-
 
 fn main() {
     let deadline = Instant::now() + FIRE_AND_FORGET_BUDGET;
@@ -177,7 +184,10 @@ fn main() {
         std::process::exit(0);
     };
     if valid_agent(&agent_arg) {
-        map.insert("coucou_agent".into(), serde_json::Value::String(agent_arg.clone()));
+        map.insert(
+            "coucou_agent".into(),
+            serde_json::Value::String(agent_arg.clone()),
+        );
     }
     for f in ["tool_response", "tool_output", "transcript_path"] {
         map.remove(f);
@@ -199,9 +209,17 @@ fn main() {
         .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .to_string();
-    if map.get("cwd").and_then(serde_json::Value::as_str).map(str::is_empty).unwrap_or(true) {
+    if map
+        .get("cwd")
+        .and_then(serde_json::Value::as_str)
+        .map(str::is_empty)
+        .unwrap_or(true)
+    {
         if let Ok(cwd) = std::env::current_dir() {
-            map.insert("cwd".into(), serde_json::Value::String(cwd.to_string_lossy().to_string()));
+            map.insert(
+                "cwd".into(),
+                serde_json::Value::String(cwd.to_string_lossy().to_string()),
+            );
         }
     }
     // Only an agent whose decisions the island can give waits for one; any
@@ -214,7 +232,11 @@ fn main() {
     .flatten();
     let mut line = payload.to_string();
     line.push('\n');
-    let budget = if waits { DECISION_BUDGET } else { deadline.saturating_duration_since(Instant::now()) };
+    let budget = if waits {
+        DECISION_BUDGET
+    } else {
+        deadline.saturating_duration_since(Instant::now())
+    };
     let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
     std::thread::spawn(move || {
         let _ = tx.send(talk(&line, waits));
@@ -235,7 +257,10 @@ fn talk(payload: &str, waits_for_answer: bool) -> Option<String> {
     let mut stream = loop {
         match try_connect(&path) {
             Ok(s) => break Some(s),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && start.elapsed() < CONNECT_TIMEOUT => {
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    && start.elapsed() < CONNECT_TIMEOUT =>
+            {
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
@@ -271,9 +296,15 @@ fn talk(payload: &str, waits_for_answer: bool) -> Option<String> {
 }
 
 fn try_connect(path: &std::path::Path) -> std::io::Result<std::os::unix::net::UnixStream> {
-    use std::os::unix::net::UnixStream;
     use std::os::unix::io::{AsRawFd, FromRawFd};
-    let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, 0) };
+    use std::os::unix::net::UnixStream;
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_UNIX,
+            libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+            0,
+        )
+    };
     if fd < 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -282,7 +313,10 @@ fn try_connect(path: &std::path::Path) -> std::io::Result<std::os::unix::net::Un
     addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
     let bytes = std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str());
     if bytes.len() >= addr.sun_path.len() {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "path too long"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "path too long",
+        ));
     }
     for (i, &b) in bytes.iter().enumerate() {
         addr.sun_path[i] = b as libc::c_char;
@@ -304,7 +338,11 @@ fn try_connect(path: &std::path::Path) -> std::io::Result<std::os::unix::net::Un
     }
     let err = std::io::Error::last_os_error();
     if err.raw_os_error() == Some(libc::EINPROGRESS) {
-        let mut pfd = libc::pollfd { fd: stream.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
         let r = unsafe { libc::poll(&mut pfd, 1, CONNECT_TIMEOUT.as_millis() as libc::c_int) };
         if r > 0 {
             let mut so_err: libc::c_int = 0;
@@ -327,10 +365,16 @@ fn try_connect(path: &std::path::Path) -> std::io::Result<std::os::unix::net::Un
             }
             return Err(std::io::Error::from_raw_os_error(so_err));
         }
-        return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "connect timeout"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "connect timeout",
+        ));
     }
     if err.raw_os_error() == Some(libc::EAGAIN) {
-        return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "backlog full"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::WouldBlock,
+            "backlog full",
+        ));
     }
     Err(err)
 }
