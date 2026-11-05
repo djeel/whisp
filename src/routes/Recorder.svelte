@@ -5,7 +5,6 @@
   import {
     currentMonitor,
     getCurrentWindow,
-    LogicalPosition,
     LogicalSize,
   } from "@tauri-apps/api/window";
   import { playCue } from "../lib/sound";
@@ -264,40 +263,29 @@
       });
   }
 
-  // Drag-to-move : la barre du haut déplace, la position est mémorisée.
-  let dragStart: { x: number; y: number; wx: number; wy: number } | null = null;
+  // Drag-to-move natif : le compositor déplace (marche Hyprland, GNOME,
+  // Wayland, X11). L'ancien setPosition manuel était ignoré par les
+  // compositors Wayland (popup jamais déplacée, XY mémorisé fantôme).
+  // Position mémorisée au relâcher (meilleur effort, via outerPosition).
   function onDragStart(e: MouseEvent): void {
     if (e.button !== 0 || !isTauri()) return;
-    const w = window as unknown as { __whispDrag?: boolean };
-    if (w.__whispDrag) return;
-    w.__whispDrag = true;
-    void (async () => {
-      try {
-        const win = getCurrentWindow();
-        const pos = await win.outerPosition();
-        const factor = (await currentMonitor())?.scaleFactor || 1;
-        dragStart = { x: e.screenX, y: e.screenY, wx: pos.x / factor, wy: pos.y / factor };
-        const move = (ev: MouseEvent): void => {
-          const d = dragStart;
-          if (!d) return;
-          void win.setPosition(
-            new LogicalPosition(Math.round(d.wx + (ev.screenX - d.x)), Math.round(d.wy + (ev.screenY - d.y))),
-          );
-        };
-        const up = (ev: MouseEvent): void => {
-          const d = dragStart;
-          dragStart = null;
-          w.__whispDrag = false;
-          window.removeEventListener("mousemove", move);
-          window.removeEventListener("mouseup", up);
-          if (d) savePopupXY(d.wx + (ev.screenX - d.x), d.wy + (ev.screenY - d.y));
-        };
-        window.addEventListener("mousemove", move);
-        window.addEventListener("mouseup", up);
-      } catch {
-        w.__whispDrag = false;
-      }
-    })();
+    const win = getCurrentWindow();
+    void win.startDragging().catch(() => {
+      /* compositor sans drag natif */
+    });
+    const up = (): void => {
+      window.removeEventListener("mouseup", up);
+      void (async () => {
+        try {
+          const pos = await win.outerPosition();
+          const factor = (await currentMonitor())?.scaleFactor || 1;
+          savePopupXY(pos.x / factor, pos.y / factor);
+        } catch {
+          /* position illisible : on garde l'ancien XY */
+        }
+      })();
+    };
+    window.addEventListener("mouseup", up);
   }
 
   onMount(() => {
