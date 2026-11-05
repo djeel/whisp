@@ -24,26 +24,80 @@
   const ATTACK = 0.5;
   const RELEASE = 0.08;
 
-  function readVar(name: string, fallback: string): string {
-    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return v || fallback;
-  }
+ function readVar(name: string, fallback: string): string {
+   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+   return v || fallback;
+ }
 
-  interface WavePalette {
-    idle: string;
-    active: string;
-    done: string;
-    error: string;
+/** Theme resolu (le recorder force dark|light, jamais system). */
+function isDark(): boolean {
+  try {
+    return document.documentElement.dataset.theme !== "light";
+  } catch {
+    return true;
   }
+}
 
-  function readPalette(): WavePalette {
-    return {
-      idle: readVar("--wave-idle", "#9a9a9a"),
-      active: readVar("--wave-active", "#ffffff"),
-      done: readVar("--green", "#4ade80"),
-      error: readVar("--red", "#ef4444"),
-    };
+/** Parse #rgb/#rrggbb/rgb()/nom -> [r,g,b]. Jamais de NaN : repli sur. */
+function toRgb(raw: string, fallback: [number, number, number]): [number, number, number] {
+  const str = raw.trim().toLowerCase();
+  const hex3 = /^#([0-9a-f]{3})$/.exec(str);
+  if (hex3) {
+    const h = hex3[1] ?? "";
+    return [0, 1, 2].map((i) => parseInt((h[i] ?? "0") + (h[i] ?? "0"), 16)) as [number, number, number];
   }
+  const hex6 = /^#([0-9a-f]{6})$/.exec(str);
+  if (hex6) {
+    const h = hex6[1] ?? "";
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+  }
+  const rgb = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(str);
+  if (rgb) {
+    const n = (x: string | undefined): number => Math.max(0, Math.min(255, parseInt(x ?? "0", 10) || 0));
+    return [n(rgb[1]), n(rgb[2]), n(rgb[3])];
+  }
+  if (str === "white") return [255, 255, 255];
+  if (str === "black") return [0, 0, 0];
+  return fallback;
+}
+
+/** Luminance relative (0 = noir, 1 = blanc). */
+function luminance([r, g, b]: [number, number, number]): number {
+  const lin = (c: number): number => {
+    const x = c / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** Garantit un contraste minimal contre le fond : jamais de noir-sur-noir. */
+function ensureContrast(fg: string, dark: boolean): string {
+  const rgb = toRgb(fg, dark ? [255, 255, 255] : [26, 26, 26]);
+  const lum = luminance(rgb);
+  const ok = dark ? lum > 0.15 : lum < 0.6;
+  if (ok) {
+    const [r, g, b] = rgb;
+    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+  }
+  return dark ? "#ffffff" : "#1a1a1a";
+}
+ 
+ interface WavePalette {
+   idle: string;
+   active: string;
+   done: string;
+   error: string;
+ }
+ 
+ function readPalette(): WavePalette {
+  const dark = isDark();
+  return {
+    idle: ensureContrast(readVar("--wave-idle", dark ? "#9a9a9a" : "#b0b0b0"), dark),
+    active: ensureContrast(readVar("--wave-active", dark ? "#ffffff" : "#1a1a1a"), dark),
+    done: ensureContrast(readVar("--green", "#4ade80"), dark),
+    error: ensureContrast(readVar("--red", "#ef4444"), dark),
+  };
+ }
 
   function paletteFor(st: RecorderStatus, p: WavePalette): string {
     switch (st) {
@@ -60,10 +114,11 @@
     }
   }
 
-  /** Mélange deux couleurs hex (#rrggbb) : t=0 → a, t=1 → b. */
+  /** Mélange deux couleurs (tout format CSS) : t=0 → a, t=1 → b. */
   function mixHex(a: string, b: string, t: number): string {
-    const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
-    const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+    const dark = isDark();
+    const pa = toRgb(a, dark ? [255, 255, 255] : [26, 26, 26]);
+    const pb = toRgb(b, dark ? [255, 255, 255] : [26, 26, 26]);
     const m = pa.map((v, i) => Math.round(v + ((pb[i] ?? v) - v) * Math.max(0, Math.min(1, t))));
     return `#${m.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
   }
