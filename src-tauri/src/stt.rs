@@ -483,11 +483,17 @@ fn secret_tool_set(key: &str) -> bool {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-    let ok = child.stdin.take().map(|mut s| s.write_all(key.as_bytes()).is_ok()).unwrap_or(false)
-        && child.wait().map(|st| st.success()).unwrap_or(false);
-    ok
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let wrote = child
+        .stdin
+        .take()
+        .map(|mut s| s.write_all(key.as_bytes()).is_ok())
+        .unwrap_or(false);
+    wrote && child.wait().map(|st| st.success()).unwrap_or(false)
 }
 
 pub fn fish_api_key() -> Option<String> {

@@ -150,7 +150,44 @@ pub fn set_hotkey(app: tauri::AppHandle, id: String, keys: String) -> Result<Str
     Ok(format!("{} → {}", crate::hotkeys::pretty(&raw), raw))
 }
 
- /// Run `hyprctl reload` so edited binds apply immediately.
+ /// Suspend tous les raccourcis (pendant la capture clavier : évite que
+/// l'ancien binding se déclenche quand on appuie Alt+Espace pour le réassigner).
+/// Ne touche pas la config : `resume_hotkeys` restaure depuis la config.
+#[tauri::command]
+pub fn pause_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
+    crate::hotkeys::unregister_all(&app)?;
+    Ok("raccourcis suspendus".to_string())
+}
+
+/// Réenregistre les raccourcis depuis la config (après capture/annulation).
+#[tauri::command]
+pub fn resume_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
+    crate::hotkeys::register_all(&app)?;
+    Ok("raccourcis restaurés".to_string())
+}
+
+/// Reset aux défauts : désenregistre tout, efface la config, réenregistre
+/// les défauts. Débloque l'utilisateur coincé sur un binding qui ne marche pas.
+#[tauri::command]
+pub fn reset_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let _ = app.global_shortcut().unregister_all();
+    crate::config::set(
+        None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None, None, None, None, Some(crate::hotkeys::DEFAULT_TOGGLE.to_string()),
+        Some(crate::hotkeys::DEFAULT_PUSH_TO_TALK.to_string()),
+        Some(crate::hotkeys::DEFAULT_CYCLE_MODE.to_string()),
+    )?;
+    crate::hotkeys::register_all(&app)?;
+    Ok(format!(
+        "défauts restaurés : {} / {} / {}",
+        crate::hotkeys::pretty(crate::hotkeys::DEFAULT_TOGGLE),
+        crate::hotkeys::pretty(crate::hotkeys::DEFAULT_PUSH_TO_TALK),
+        crate::hotkeys::pretty(crate::hotkeys::DEFAULT_CYCLE_MODE),
+    ))
+}
+
+/// Run `hyprctl reload` so edited binds apply immediately.
  #[tauri::command]
  pub fn reload_hyprland() -> Result<String, String> {
      reload_hyprland_inner()

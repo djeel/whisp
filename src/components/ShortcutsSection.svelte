@@ -24,8 +24,9 @@
   let capturing: string | null = $state(null);
   let captureKeys = $state("");
   let saving = $state<string | null>(null);
+  let resetting = $state(false);
 
-  onMount(() => {
+  function refresh(): void {
     invoke<HotkeyRow[]>("list_hotkeys")
       .then((r) => {
         if (Array.isArray(r) && r.length > 0) rows = r;
@@ -33,6 +34,10 @@
       .catch(() => {
         /* backend en cours : liste statique */
       });
+  }
+
+  onMount(() => {
+    refresh();
   });
 
   function reload(): void {
@@ -71,11 +76,33 @@
     capturing = id;
     captureKeys = "Appuyez sur les touches… (Échap pour annuler)";
     msg = null;
+    // Suspend les globaux : sinon l'ancien binding se déclenche pendant
+    // la frappe (Alt+Espace ouvrait le recorder au lieu d'être capturé).
+    void invoke("pause_hotkeys").catch(() => undefined);
   }
 
   function cancelCapture(): void {
     capturing = null;
     captureKeys = "";
+    void invoke("resume_hotkeys")
+      .then(() => refresh())
+      .catch(() => undefined);
+  }
+
+  function resetDefaults(): void {
+    resetting = true;
+    msg = null;
+    invoke<string>("reset_hotkeys")
+      .then((m) => {
+        msg = m;
+        refresh();
+      })
+      .catch((e: unknown) => {
+        msg = e instanceof Error ? e.message : String(e);
+      })
+      .finally(() => {
+        resetting = false;
+      });
   }
 
   function onCaptureKey(e: KeyboardEvent): void {
@@ -97,10 +124,7 @@
     invoke<string>("set_hotkey", { id, keys: raw })
       .then((m) => {
         msg = m;
-        return invoke<HotkeyRow[]>("list_hotkeys");
-      })
-      .then((r) => {
-        if (Array.isArray(r) && r.length > 0) rows = r;
+        refresh();
       })
       .catch((e: unknown) => {
         msg = e instanceof Error ? e.message : String(e);
@@ -146,14 +170,16 @@
       </li>
     {/each}
   </ul>
-  <div class="row">
-    <button type="button" class="ghost" onclick={reload} disabled={reloading}>
-      {reloading ? "Rechargement…" : "Recharger Hyprland"}
+   <div class="row">
+     <button type="button" class="ghost" onclick={reload} disabled={reloading}>
+       {reloading ? "Rechargement…" : "Recharger Hyprland"}
+     </button>
+    <button type="button" class="ghost" onclick={resetDefaults} disabled={resetting || saving !== null} title="Restaure Alt+Espace, Ctrl+Alt+Espace, Ctrl+Alt+M">
+      {resetting ? "Réinitialisation…" : "Réinitialiser"}
     </button>
-    {#if msg}
-      <span class="field-hint" role="status">{msg}</span>
-    {/if}
-  </div>
+     {#if msg}
+       <span class="field-hint" role="status">{msg}</span>
+     {/if}
 </section>
 
 <style>
