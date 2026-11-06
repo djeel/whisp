@@ -18,6 +18,7 @@
     startCaelestiaWatch,
     type CaelestiaScheme,
   } from "../lib/accent";
+  import { fetchAppConfig } from "../lib/appConfig";
   import Mochi from "../components/Mochi.svelte";
   import Waveform from "../components/Waveform.svelte";
   import ApprovalCard from "../components/ApprovalCard.svelte";
@@ -32,6 +33,7 @@
     SHRINK_ICON,
     applyPopupAppearance,
     applyPopupPosition,
+    resolveAppearanceFromConfig,
     type Approval,
     type RecorderStatus,
   } from "../lib/recorder";
@@ -340,12 +342,21 @@
   onMount(() => {
     let live = true;
     let doneTimer = 0;
+    let cfgScheme: CaelestiaScheme | null = null;
+    // Apparence backend-first : `get_config` est la vérité (le localStorage
+    // du WebView recorder peut être isolé de celui des settings). Le scheme
+    // frais est appliqué dès réception, puis suivi live via le watch.
     applyRecorderAppearance(null);
     applyPopupAppearance();
-    // Scheme Caelestia + suivi fond d'écran : la popup reste ouverte peu
-    // longtemps, mais un changement de wallpaper entre-temps la suit aussi.
     void fetchCaelestiaScheme().then((scheme) => {
-      if (live && scheme) applyRecorderAppearance(scheme);
+      if (!live) return;
+      cfgScheme = scheme;
+      if (scheme) applyRecorderAppearance(scheme);
+    });
+    void fetchAppConfig().then((cfg) => {
+      if (!live) return;
+      const r = resolveAppearanceFromConfig(cfg);
+      applyAppearance(r.theme, r.source, r.custom, cfgScheme);
     });
     startCaelestiaWatch();
     let offCaelestia: (() => void) | null = null;

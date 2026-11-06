@@ -314,13 +314,13 @@ export class SettingsStore {
     this.caelestia = scheme;
     startCaelestiaWatch();
     try {
-      const un = await listen<CaelestiaScheme>("caelestia://scheme", (e) => {
-        if (!this.live) return;
-        const next = e.payload.available ? e.payload : null;
-        this.caelestia = next;
-        // Lecture live de this.theme : pas de closure stale (ex-themeRef).
-        applyAppearance(this.theme === "system" ? null : this.theme, readAccentSource(), readAccentCustom(), next);
-      });
+       const un = await listen<CaelestiaScheme>("caelestia://scheme", (e) => {
+         if (!this.live) return;
+         const next = e.payload.available ? e.payload : null;
+         this.caelestia = next;
+        // États live ($state, pas localStorage) : le store est la vérité locale.
+        applyAppearance(this.theme === "system" ? null : this.theme, this.accentSource, this.accentCustom, next);
+       });
       if (!this.live) {
         un();
         return;
@@ -764,17 +764,16 @@ export class SettingsStore {
     this.queueConfig({ cardOpacity: next });
   }
 
-  pushAccentSource(next: AccentSource): void {
+   pushAccentSource(next: AccentSource): void {
     this.accentSource = next;
-    writeStored("whisp:accent-source", next);
+    writePref("whisp:accent-source", next);
     this.queueConfig({ accentSource: next });
-  }
-
-  pushAccentCustom(raw: string): void {
+   }
+   pushAccentCustom(raw: string): void {
     const next = raw.toLowerCase();
     this.accentCustom = next;
     if (!isAccentHex(next)) return;
-    writeStored("whisp:accent-custom", next);
+    writePref("whisp:accent-custom", next);
     this.queueConfig({ accentCustom: next });
-  }
+   }
 }

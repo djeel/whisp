@@ -41,6 +41,26 @@ export function applyPopupAppearance(): void {
   document.documentElement.style.setProperty("--card-alpha", String(alpha));
 }
 
+/** Accent d'une config backend (`get_config`, camelCase) : backend d'abord,
+ * localStorage en repli (navigateur/hors-ligne). Même résolution que Settings
+ * (source → custom → scheme), jamais de localStorage isolé comme vérité. */
+export function resolveAppearanceFromConfig(cfg: Record<string, unknown> | null | undefined): {
+  theme: string | null;
+  source: "theme" | "custom" | "caelestia";
+  custom: string;
+} {
+  const theme =
+    cfg?.theme === "dark" || cfg?.theme === "light" ? (cfg.theme as string) : null;
+  const source =
+    cfg?.accentSource === "custom" || cfg?.accentSource === "caelestia" ? (cfg.accentSource as "custom" | "caelestia") : "theme";
+  const rawCustom = typeof cfg?.accentCustom === "string" ? (cfg.accentCustom as string) : "";
+  const custom =
+    rawCustom.length === 7 && rawCustom.startsWith("#") && [...rawCustom.slice(1)].every((ch) => /[0-9a-fA-F]/.test(ch))
+      ? rawCustom.toLowerCase()
+      : (readPref("whisp:accent-custom") ?? "#f59e0b");
+  return { theme, source, custom };
+}
+
 /** Position initiale : XY mémorisé d'abord, sinon preset + backend. */
 export async function applyPopupPosition(): Promise<void> {
   if (!isTauri()) return;
