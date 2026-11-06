@@ -70,7 +70,6 @@
   async function install(): Promise<void> {
     downloading = true;
     progress = 0;
-    total = null;
     status = null;
     try {
       const update = await checkUpdate();
