@@ -60,6 +60,31 @@ fn http_client_with_timeout(secs: u64) -> reqwest::blocking::Client {
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 }
 
+/// Pré-charge le modèle en VRAM (un token) : la première dictée ne paie
+/// pas le reload (~7 s mesurés à froid). Best effort, silencieux.
+pub fn warm() {
+    let llm = OllamaLocal::default();
+    let _ = llm
+        .client
+        .post(format!("{}/api/generate", llm.base_url))
+        .json(&OllamaRequest {
+            model: &llm.model,
+            prompt: "ok",
+            stream: false,
+            think: false,
+            keep_alive: "60m",
+            // Même num_ctx que le raffinage (512) : Ollama clé le modèle
+            // chargé sur le ctx — un warmup en ctx 32 forcerait un reload
+            // à la première vraie requête (6 s mesurées).
+            options: OllamaOptions {
+                temperature: 0.0,
+                num_ctx: 512,
+                num_predict: 1,
+            },
+        })
+        .send();
+}
+
 impl Default for OllamaLocal {
     fn default() -> Self {
         Self {
@@ -85,6 +110,9 @@ struct OllamaRequest<'a> {
     prompt: &'a str,
     stream: bool,
     think: bool,
+    // Modèle gardé en VRAM 1 h : une dictée toutes les minutes ne paie
+    // jamais le reload (~7 s mesurés). Défaut Ollama = 5 min.
+    keep_alive: &'a str,
     options: OllamaOptions,
 }
 
@@ -122,10 +150,16 @@ impl Llm for OllamaLocal {
                 stream: false,
                 // Pas de raisonnement pour du raffinage : direct + rapide.
                 think: false,
+                // num_ctx 512 : le prompt fait ~150 tokens, le contexte
+                // 2048 alloue 4× de KV-cache pour rien (load + lent).
+                // num_predict borné : le raffinage ne doit pas dépasser
+                // ~1.5× le transcript (empêche le bavardage mesuré : 18 s
+                // d'analyse+emojis pour une phrase).
+                keep_alive: "60m",
                 options: OllamaOptions {
                     temperature: 0.1,
-                    num_ctx: 2048,
-                    num_predict: 256,
+                    num_ctx: 512,
+                    num_predict: (transcript.split_whitespace().count() as i32 * 2 + 32).min(256),
                 },
             })
             .send()
@@ -473,7 +507,10 @@ pub fn chat(provider: &str, messages: &[ChatMessage]) -> Result<String, String> 
                     "messages": turns,
                     "stream": false,
                     "think": false,
-                    "options": { "num_ctx": 2048 },
+                    // Même keep_alive que le raffinage : le mode voix ne
+                    // paie pas le reload non plus. ctx 512 : conversation.
+                    "keep_alive": "60m",
+                    "options": { "num_ctx": 512 },
                 }))
                 .send()
                 .map_err(|e| format!("ollama unreachable — is `ollama serve` running?: {e}"))?

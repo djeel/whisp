@@ -457,11 +457,12 @@ pub fn dictation_language() -> String {
     }
 }
 
-/// Validated local model name; default is `medium` (FR quality), `small`/`base` for speed.
+/// Validated local model name; default is `small` (mesuré : 2.2 s vs 7.4 s
+/// pour `medium` sur 7.8 s FR, même texte — `medium` opt-in via Settings).
 pub fn stt_model_name() -> String {
     match load().stt_model.as_deref() {
         Some(m @ ("small" | "medium" | "base")) => m.to_string(),
-        _ => "medium".to_string(),
+        _ => "small".to_string(),
     }
 }
 

@@ -1622,11 +1622,24 @@ fn build_tray(app: &tauri::AppHandle) -> Result<(), String> {
 /// Show + focus the main window (settings). Used by tray click/menu.
 fn show_main_window(app: &tauri::AppHandle) {
     use tauri::Manager;
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.set_focus();
-        #[cfg(target_os = "linux")]
-        let _ = w.set_always_on_top(false);
+    match app.get_webview_window("main") {
+        Some(w) => {
+            if let Err(e) = w.show() {
+                eprintln!("[whisp] show main failed: {e}");
+            }
+            let _ = w.set_focus();
+            #[cfg(target_os = "linux")]
+            let _ = w.set_always_on_top(false);
+            // Sous Wayland, show() seul peut laisser la surface non mappée :
+            // on réveille explicitement (unminimize) et on centre au cas où
+            // la position restaurée serait hors écran.
+            // Sous Wayland, show() seul peut laisser la surface non mappée :
+            // on réveille explicitement (unminimize) et on centre au cas où
+            // la position restaurée serait hors écran.
+            let _ = w.unminimize();
+            let _ = w.center();
+        }
+        None => eprintln!("[whisp] no main window handle"),
     }
 }
 
@@ -1867,6 +1880,12 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
             on_tray_event(app, "tray-record");
             ok(serde_json::json!({"toggled": true}))
         }
+        "open" => {
+            // Clic icône / .desktop quand l'app tourne déjà : montre la
+            // fenêtre settings au lieu de lancer une 2e instance blanche.
+            show_main_window(app);
+            ok(serde_json::json!({"opened": true}))
+        }
         "status" => {
             let st = app
                 .try_state::<AppState>()
@@ -2091,6 +2110,16 @@ pub fn run() {
         agent_hook::spawn_agents_socket(app.handle().clone());
         agent_hook::ensure_relay_installed();
         spawn_main_thread_watchdog(app.handle().clone());
+        // Warmup au démarrage : STT daemon + LLM déjà chargés avant la
+        // première dictée (mesuré : reload Ollama ~7 s à froid). Best effort,
+        // en arrière-plan, jamais bloquant.
+        std::thread::Builder::new()
+            .name("whisp-warmup".to_string())
+            .spawn(|| {
+                let _ = stt::ensure_daemon(&config::stt_model_name());
+                llm::warm();
+            })
+            .ok();
         // Recorder starts hidden (see tauri.conf.json `visible: false`).
         Ok(())
         })

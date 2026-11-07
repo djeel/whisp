@@ -42,7 +42,7 @@ with wave.open(wav_path, "rb") as w:
     assert w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == 16000, "need 16k mono s16 wav"
     raw = w.readframes(w.getnframes())
 audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-_cuda = False  # CUDA disabled: libcublas missing on this host; CPU int8 is reliable
+# CPU int8 verrouillé (cf. stt_server.py : cublas 12 vs CUDA 13 host).
 m = WhisperModel(model, device="cpu", compute_type="int8")
 lang = None if language in ("auto", "") else language
 segments, _ = m.transcribe(audio, language=lang, beam_size=1,

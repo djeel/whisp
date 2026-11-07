@@ -8,6 +8,7 @@
 
 const CMDS: &[&str] = &[
     "toggle",
+    "open",
     "start",
     "stop",
     "cycle-mode",

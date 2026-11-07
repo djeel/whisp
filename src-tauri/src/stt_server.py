@@ -128,13 +128,29 @@ handle.last_lang = None  # type: ignore[attr-defined]
 handle.last_detect = 0.0  # type: ignore[attr-defined]
 
 
+def _device() -> tuple:
+    # CPU int8 verrouillé : ctranslate2 4.8.5 exige cublas 12, l'host a
+    # CUDA 13 (libcublas.so.13) → toute tentative CUDA échoue au load
+    # (mesuré : `libcublas.so.12 not found`). `small` CPU = 2.2 s / 7.8 s
+    # audio, largement assez rapide — pas de GPU à gagner ici.
+    return ("cpu", "int8")
+
+
 def serve(sock_path: str, model_name: str) -> int:
     from faster_whisper import WhisperModel
 
-    # CPU int8 is the reliable default (CUDA disabled: libcublas missing).
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    device, compute = _device()
+    try:
+        model = WhisperModel(model_name, device=device, compute_type=compute)
+    except Exception as e:
+        print(f"[whisp-stt] {device} failed ({e}), CPU fallback", flush=True)
+        device, compute = "cpu", "int8"
+        model = WhisperModel(model_name, device=device, compute_type=compute)
     # Realtime companion: tiny is ~10x faster, good enough for live previews.
-    handle.tiny = WhisperModel("tiny", device="cpu", compute_type="int8")
+    try:
+        handle.tiny = WhisperModel("tiny", device=device, compute_type=compute)
+    except Exception:
+        handle.tiny = WhisperModel("tiny", device="cpu", compute_type="int8")
     handle.tiny_lang = None
 
     os.makedirs(os.path.dirname(sock_path) or ".", exist_ok=True)
