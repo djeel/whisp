@@ -33,9 +33,7 @@ impl AppState {
 
     /// Lock that recovers from poisoning (a panicked holder must not brick
     /// the recorder forever in release).
-    pub fn session_lock(
-        &self,
-    ) -> std::sync::MutexGuard<'_, SessionState> {
+    pub fn session_lock(&self) -> std::sync::MutexGuard<'_, SessionState> {
         self.session.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -84,7 +82,11 @@ impl RecStatus {
 }
 
 pub fn current_mode_id(state: &State<AppState>) -> String {
-    state.mode_id.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    state
+        .mode_id
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 pub fn emit_state(app: &tauri::AppHandle, status: RecStatus, message: Option<String>) {
@@ -104,7 +106,11 @@ pub fn emit_state(app: &tauri::AppHandle, status: RecStatus, message: Option<Str
 /// Cycle/set the mode then emit the mode change while preserving the current
 /// pipeline status: cycling mid-dictation must NOT reset the popup to idle,
 /// and cycling during transcription must NOT drop `processing` either.
-pub fn emit_mode_changed(app: &tauri::AppHandle, state: &State<'_, AppState>, next: &crate::modes::Mode) {
+pub fn emit_mode_changed(
+    app: &tauri::AppHandle,
+    state: &State<'_, AppState>,
+    next: &crate::modes::Mode,
+) {
     *state.mode_id.lock().unwrap_or_else(|e| e.into_inner()) = next.id.clone();
     let transcribing = state.transcribing.load(std::sync::atomic::Ordering::SeqCst);
     let recording = state

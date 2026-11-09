@@ -81,7 +81,7 @@ pub fn all_shortcuts() -> Vec<ShortcutInfo> {
 
 /// Reload the Hyprland config so edited binds apply now.
 /// `hyprctl reload` exit code is surfaced; missing hyprctl = clear error.
- fn reload_hyprland_inner() -> Result<String, String> {
+fn reload_hyprland_inner() -> Result<String, String> {
     // Deadline 15 s : hyprctl coincé (service sans WAYLAND_DISPLAY) = erreur.
     match crate::run_timed_out(&["hyprctl", "reload"], std::time::Duration::from_secs(15)) {
         Ok(_) => Ok("Configuration Hyprland rechargée.".to_string()),
@@ -90,18 +90,18 @@ pub fn all_shortcuts() -> Vec<ShortcutInfo> {
         }
         Err(e) => Err(format!("hyprctl reload: {e}")),
     }
- }
+}
 
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
 
- /// List all whisp shortcuts for the settings UI.
- #[tauri::command]
- pub fn list_shortcuts() -> Vec<ShortcutInfo> {
-     all_shortcuts()
- }
- 
+/// List all whisp shortcuts for the settings UI.
+#[tauri::command]
+pub fn list_shortcuts() -> Vec<ShortcutInfo> {
+    all_shortcuts()
+}
+
 /// Live inventory with raw strings + editable flags (settings UI).
 #[tauri::command]
 pub fn list_hotkeys() -> Vec<ShortcutRow> {
@@ -125,7 +125,11 @@ pub fn set_hotkey(app: tauri::AppHandle, id: String, keys: String) -> Result<Str
         "toggle" => crate::hotkeys::toggle_shortcut(),
         "push-to-talk" => crate::hotkeys::push_to_talk_shortcut(),
         "cycle-mode" => crate::hotkeys::cycle_mode_shortcut(),
-        _ => return Err(format!("unknown hotkey id '{id}' (toggle|push-to-talk|cycle-mode)")),
+        _ => {
+            return Err(format!(
+                "unknown hotkey id '{id}' (toggle|push-to-talk|cycle-mode)"
+            ))
+        }
     };
     // 3. Désenregistre l'ancien, enregistre le nouveau, persiste si OK.
     // En cas d'échec (conflit), restaure l'ancien pour ne jamais perdre
@@ -150,7 +154,7 @@ pub fn set_hotkey(app: tauri::AppHandle, id: String, keys: String) -> Result<Str
     Ok(format!("{} → {}", crate::hotkeys::pretty(&raw), raw))
 }
 
- /// Suspend tous les raccourcis (pendant la capture clavier : évite que
+/// Suspend tous les raccourcis (pendant la capture clavier : évite que
 /// l'ancien binding se déclenche quand on appuie Alt+Espace pour le réassigner).
 /// Ne touche pas la config : `resume_hotkeys` restaure depuis la config.
 #[tauri::command]
@@ -173,8 +177,33 @@ pub fn reset_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let _ = app.global_shortcut().unregister_all();
     crate::config::set(
-        None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None, None, None, None, Some(crate::hotkeys::DEFAULT_TOGGLE.to_string()),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(crate::hotkeys::DEFAULT_TOGGLE.to_string()),
         Some(crate::hotkeys::DEFAULT_PUSH_TO_TALK.to_string()),
         Some(crate::hotkeys::DEFAULT_CYCLE_MODE.to_string()),
     )?;
@@ -188,7 +217,7 @@ pub fn reset_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 /// Run `hyprctl reload` so edited binds apply immediately.
- #[tauri::command]
- pub fn reload_hyprland() -> Result<String, String> {
-     reload_hyprland_inner()
- }
+#[tauri::command]
+pub fn reload_hyprland() -> Result<String, String> {
+    reload_hyprland_inner()
+}

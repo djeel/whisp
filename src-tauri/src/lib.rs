@@ -161,7 +161,10 @@ fn do_cancel(app: &tauri::AppHandle) -> Result<(), String> {
     // Échap = tout s'arrête : Agent en cours (Ctrl-C tmux + flag), réponse
     // vocale en cours (le thread TTS vérifie le flag), puis hide.
     // Deadline : Échap ne doit jamais figer l'app si tmux est coincé.
-    let _ = run_timed(&["tmux", "send-keys", "-t", AGENT_SESSION, "C-c"], Duration::from_secs(3));
+    let _ = run_timed(
+        &["tmux", "send-keys", "-t", AGENT_SESSION, "C-c"],
+        Duration::from_secs(3),
+    );
     state
         .agent_running
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -433,36 +436,36 @@ fn spawn_main_thread_watchdog(app: tauri::AppHandle) {
 /// Persistent agent session (tmux name + terminal title).
 const AGENT_SESSION: &str = "whisp-agent";
 
- fn have_bin(name: &str) -> bool {
+fn have_bin(name: &str) -> bool {
     // Cache process-wide : `command -v` spawnait un `sh` à chaque poll
     // (agent_status + agent_last_output à 1 Hz = 2 sh/s). Le PATH ne
     // change pas pendant la vie du process : scan direct, zéro spawn.
     static CACHE: std::sync::LazyLock<std::collections::HashMap<String, bool>> =
         std::sync::LazyLock::new(|| {
-         let mut m = std::collections::HashMap::new();
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        let mut dirs: Vec<std::path::PathBuf> = std::env::split_paths(&path).collect();
-        dirs.push("/usr/bin".into());
-        dirs.push("/usr/local/bin".into());
-        for bin in [
-            "tmux", "hyprctl", "grim", "wl-copy", "wtype", "ydotool", "xdotool", "foot", "kitty",
-            "xterm", "pgrep", "pkill", "bash",
-        ] {
-            m.insert(
-                bin.to_string(),
-                dirs.iter().any(|d| {
-                    let p = d.join(bin);
-                    std::fs::metadata(&p)
-                        .map(|md| {
-                            use std::os::unix::fs::PermissionsExt;
-                            md.is_file() && md.permissions().mode() & 0o111 != 0
-                        })
-                        .unwrap_or(false)
-                }),
-            );
-        }
-        m
-    });
+            let mut m = std::collections::HashMap::new();
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let mut dirs: Vec<std::path::PathBuf> = std::env::split_paths(&path).collect();
+            dirs.push("/usr/bin".into());
+            dirs.push("/usr/local/bin".into());
+            for bin in [
+                "tmux", "hyprctl", "grim", "wl-copy", "wtype", "ydotool", "xdotool", "foot",
+                "kitty", "xterm", "pgrep", "pkill", "bash",
+            ] {
+                m.insert(
+                    bin.to_string(),
+                    dirs.iter().any(|d| {
+                        let p = d.join(bin);
+                        std::fs::metadata(&p)
+                            .map(|md| {
+                                use std::os::unix::fs::PermissionsExt;
+                                md.is_file() && md.permissions().mode() & 0o111 != 0
+                            })
+                            .unwrap_or(false)
+                    }),
+                );
+            }
+            m
+        });
     if let Some(&hit) = CACHE.get(name) {
         return hit;
     }
@@ -476,14 +479,18 @@ const AGENT_SESSION: &str = "whisp-agent";
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
- }
+}
 
- fn tmux_session_active() -> bool {
+fn tmux_session_active() -> bool {
     // Deadline 5 s : un serveur tmux coincé figeait le thread principal
     // (freeze constaté sur agent_status pollé à 1 Hz).
     have_bin("tmux")
-        && run_timed(&["tmux", "has-session", "-t", AGENT_SESSION], Duration::from_secs(5)).is_ok()
- }
+        && run_timed(
+            &["tmux", "has-session", "-t", AGENT_SESSION],
+            Duration::from_secs(5),
+        )
+        .is_ok()
+}
 
 /// Deadline for a local tmux control command (`has-session`,
 /// `display-message`, `new-session`, `send-keys`, `kill-session`). These are
@@ -531,25 +538,30 @@ fn recreate_agent_session() -> Result<(), String> {
 }
 
 /// A visible agent terminal is already open (foot/kitty/xterm titled whisp-agent).
- fn agent_term_visible() -> bool {
+fn agent_term_visible() -> bool {
     // Deadline : pgrep coincé (sysfs lent) ne doit pas figer le poll 1 Hz.
     run_timed(&["pgrep", "-f", AGENT_SESSION], Duration::from_secs(5)).is_ok()
- }
- 
- /// True when a previous Agent dictation left a live session behind.
- fn agent_session_active() -> bool {
-     tmux_session_active() || agent_term_visible()
- }
- 
- /// Bring the existing agent terminal forward (Hyprland) instead of opening
- /// a second one. Best effort.
- fn focus_agent_term() {
+}
+
+/// True when a previous Agent dictation left a live session behind.
+fn agent_session_active() -> bool {
+    tmux_session_active() || agent_term_visible()
+}
+
+/// Bring the existing agent terminal forward (Hyprland) instead of opening
+/// a second one. Best effort.
+fn focus_agent_term() {
     // Best effort : un hyprctl coincé ne doit jamais figer l'UI.
     let _ = run_timed(
-        &["hyprctl", "dispatch", "focuswindow", &format!("title:{AGENT_SESSION}")],
+        &[
+            "hyprctl",
+            "dispatch",
+            "focuswindow",
+            &format!("title:{AGENT_SESSION}"),
+        ],
         Duration::from_secs(3),
     );
- }
+}
 
 /// Open the visible agent terminal running `shell_cmd` (a `sh -c` body).
 /// foot first, then kitty, then xterm. Silent when no terminal exists.
@@ -859,7 +871,11 @@ pub(crate) fn run_timed_out(argv: &[&str], timeout: Duration) -> Result<String, 
                     let _ = child.kill();
                     let _ = child.wait();
                     let _ = reader.join();
-                    return Err(format!("{} timed out after {}s", argv[0], timeout.as_secs()));
+                    return Err(format!(
+                        "{} timed out after {}s",
+                        argv[0],
+                        timeout.as_secs()
+                    ));
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -1212,44 +1228,44 @@ fn set_config(
     popup_size: Option<String>,
     card_opacity: Option<f64>,
     popup_mochi: Option<bool>,
-     popup_xy: Option<String>,
-     accent_source: Option<String>,
-     accent_custom: Option<String>,
+    popup_xy: Option<String>,
+    accent_source: Option<String>,
+    accent_custom: Option<String>,
     hotkey_toggle: Option<String>,
     hotkey_push_to_talk: Option<String>,
     hotkey_cycle_mode: Option<String>,
- ) -> Result<(), String> {
-     config::set(
-         popup_pos,
-         stt_model,
-         theme,
-         language,
-         input_device,
-         agent,
-         agent_command,
-         agent_cwd,
-         agent_context,
-         realtime_preview,
-         auto_paste,
-         active_pills,
-         ollama_url,
-         ollama_model,
-         chat_provider,
-         chat_model,
-         chat_base_url,
-         claude_style,
-         fish_voice,
-         agent_voice,
-         popup_size,
-         card_opacity,
-         popup_mochi,
-         popup_xy,
-         accent_source,
-         accent_custom,
+) -> Result<(), String> {
+    config::set(
+        popup_pos,
+        stt_model,
+        theme,
+        language,
+        input_device,
+        agent,
+        agent_command,
+        agent_cwd,
+        agent_context,
+        realtime_preview,
+        auto_paste,
+        active_pills,
+        ollama_url,
+        ollama_model,
+        chat_provider,
+        chat_model,
+        chat_base_url,
+        claude_style,
+        fish_voice,
+        agent_voice,
+        popup_size,
+        card_opacity,
+        popup_mochi,
+        popup_xy,
+        accent_source,
+        accent_custom,
         hotkey_toggle,
         hotkey_push_to_talk,
         hotkey_cycle_mode,
-     )
+    )
 }
 
 /// Agent session status for the settings card: `{active, agent, cwd,
@@ -1260,11 +1276,11 @@ fn set_config(
 /// currently holds non-blank output (lets the frontend show something
 /// useful without polling `agent_last_output` in a loop). Never fails:
 /// degrades to inactives on missing state.
- #[tauri::command]
+#[tauri::command]
 async fn agent_status(app: tauri::AppHandle) -> serde_json::Value {
     let last: Option<String> = app
-         .try_state::<AppState>()
-         .and_then(|s: State<'_, AppState>| s.agent_last.lock().ok().and_then(|g| g.clone()));
+        .try_state::<AppState>()
+        .and_then(|s: State<'_, AppState>| s.agent_last.lock().ok().and_then(|g| g.clone()));
     // hyprctl + tmux ×2 + pgrep : jamais sur le thread principal, même avec
     // deadlines (un spawn lent suffit à geler les clics pendant le mount).
     let blocking = tauri::async_runtime::spawn_blocking(|| {
@@ -1287,20 +1303,23 @@ async fn agent_status(app: tauri::AppHandle) -> serde_json::Value {
 }
 
 /// True when `capture-pane` on the agent session returns non-blank text.
- /// Best effort (false on missing tmux/session): keeps `agent_status`
- /// infallible while sparing the frontend blind output polling.
- fn agent_pane_has_output() -> bool {
+/// Best effort (false on missing tmux/session): keeps `agent_status`
+/// infallible while sparing the frontend blind output polling.
+fn agent_pane_has_output() -> bool {
     // Deadline 5 s : pollé à 1 Hz en mode agent, un tmux coincé figeait tout.
-    run_timed_out(&["tmux", "capture-pane", "-p", "-t", AGENT_SESSION], Duration::from_secs(5))
-        .map(|o| o.chars().any(|c| !c.is_whitespace()))
-        .unwrap_or(false)
- }
- 
- /// Dernière sortie Agent pour le module inline de la popup (remplace l'ancienne island).
- /// `tmux capture-pane` sur `whisp-agent`, 20 dernières lignes, jamais de log.
- #[tauri::command]
+    run_timed_out(
+        &["tmux", "capture-pane", "-p", "-t", AGENT_SESSION],
+        Duration::from_secs(5),
+    )
+    .map(|o| o.chars().any(|c| !c.is_whitespace()))
+    .unwrap_or(false)
+}
+
+/// Dernière sortie Agent pour le module inline de la popup (remplace l'ancienne island).
+/// `tmux capture-pane` sur `whisp-agent`, 20 dernières lignes, jamais de log.
+#[tauri::command]
 async fn agent_last_output() -> Result<String, String> {
-     // Deadline 5 s : même cause de freeze que ci-dessus (poll 1 Hz).
+    // Deadline 5 s : même cause de freeze que ci-dessus (poll 1 Hz).
     // spawn_blocking en plus : même avec deadline, le spawn/wait ne doit
     // jamais toucher le thread principal.
     let text = tauri::async_runtime::spawn_blocking(|| {
@@ -1314,9 +1333,9 @@ async fn agent_last_output() -> Result<String, String> {
     .map_err(|_| {
         "Agent introuvable, vérifie Configuration (tmux absent ou session `whisp-agent` absente — dicte une demande pour la créer)".to_string()
     })?;
-     let lines: Vec<&str> = text.lines().collect();
-     let start = lines.len().saturating_sub(20);
-     Ok(lines[start..].join("\n").chars().take(2000).collect())
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(20);
+    Ok(lines[start..].join("\n").chars().take(2000).collect())
 }
 
 /// Open (or focus) the agent terminal: focus `whisp-agent` when visible,
@@ -1506,7 +1525,6 @@ fn test_ollama(url: Option<String>) -> Result<String, String> {
     Ok(format!("Ollama OK ({base}, {n} modèle(s))"))
 }
 
-
 /// Autostart toggle (Settings → Application) : lit/pilote le service user
 /// `whisp.service` (install.sh). Nickel sur CachyOS : le binaire tourne en
 /// service user, pas de clés desktop à gérer. `set` applique seulement le
@@ -1526,14 +1544,14 @@ async fn set_autostart(enabled: bool) -> Result<bool, String> {
         .await
         .map_err(|e| format!("autostart worker: {e}"))?
 }
- #[tauri::command]
+#[tauri::command]
 async fn list_input_devices() -> Vec<String> {
     // Énumération ALSA (jusqu'à 5 s sur certains systèmes) : jamais sur le
     // thread principal — le mount Settings gelait les clics en attendant.
     tauri::async_runtime::spawn_blocking(audio::list_input_devices)
         .await
         .unwrap_or_default()
- }
+}
 
 #[tauri::command]
 fn show_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
@@ -1698,7 +1716,19 @@ fn on_tray_event(app: &tauri::AppHandle, id: &str) {
                         .map(|s: State<'_, AppState>| current_mode_id(&s))
                         .unwrap_or_else(|| "message".to_string());
                     let mode = modes::get_mode(&mode_id).unwrap_or_else(|| {
-                        modes::builtin_modes().into_iter().next().unwrap_or_else(|| modes::Mode { id: "message".to_string(), label: "Message".to_string(), preset: "message".to_string(), prompt: String::new(), stt: crate::modes::SttKind::Local, llm: crate::modes::LlmKind::OllamaLocal, language: "fr".to_string(), vocabulary: Vec::new() })
+                        modes::builtin_modes()
+                            .into_iter()
+                            .next()
+                            .unwrap_or_else(|| modes::Mode {
+                                id: "message".to_string(),
+                                label: "Message".to_string(),
+                                preset: "message".to_string(),
+                                prompt: String::new(),
+                                stt: crate::modes::SttKind::Local,
+                                llm: crate::modes::LlmKind::OllamaLocal,
+                                language: "fr".to_string(),
+                                vocabulary: Vec::new(),
+                            })
                     });
                     if let Err(e) = do_finish(app.clone(), mode).await {
                         emit_state(&app, RecStatus::Error, Some(e));
@@ -1712,7 +1742,11 @@ fn on_tray_event(app: &tauri::AppHandle, id: &str) {
             if let Some(state) = app.try_state::<AppState>() {
                 let all = modes::list_modes();
                 if !all.is_empty() {
-                    let cur = state.mode_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    let cur = state
+                        .mode_id
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
                     let idx = all.iter().position(|m| m.id == cur).unwrap_or(0);
                     let next = all[(idx + 1) % all.len()].clone();
                     emit_mode_changed(app, &state, &next);
@@ -1960,7 +1994,19 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 .map(|s: tauri::State<'_, AppState>| current_mode_id(&s))
                 .unwrap_or_else(|| "message".to_string());
             let mode = modes::get_mode(&mode_id).unwrap_or_else(|| {
-                modes::builtin_modes().into_iter().next().unwrap_or_else(|| modes::Mode { id: "message".to_string(), label: "Message".to_string(), preset: "message".to_string(), prompt: String::new(), stt: crate::modes::SttKind::Local, llm: crate::modes::LlmKind::OllamaLocal, language: "fr".to_string(), vocabulary: Vec::new() })
+                modes::builtin_modes()
+                    .into_iter()
+                    .next()
+                    .unwrap_or_else(|| modes::Mode {
+                        id: "message".to_string(),
+                        label: "Message".to_string(),
+                        preset: "message".to_string(),
+                        prompt: String::new(),
+                        stt: crate::modes::SttKind::Local,
+                        llm: crate::modes::LlmKind::OllamaLocal,
+                        language: "fr".to_string(),
+                        vocabulary: Vec::new(),
+                    })
             });
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -2057,13 +2103,13 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 str_field("popupSize"),
                 v.get("cardOpacity").and_then(|x| x.as_f64()),
                 v.get("popupMochi").and_then(|x| x.as_bool()),
-                 str_field("popupXy"),
-                 str_field("accentSource"),
-                 str_field("accentCustom"),
+                str_field("popupXy"),
+                str_field("accentSource"),
+                str_field("accentCustom"),
                 str_field("hotkeyToggle"),
                 str_field("hotkeyPushToTalk"),
                 str_field("hotkeyCycleMode"),
-             ) {
+            ) {
                 Ok(()) => ok(serde_json::json!(config::load())),
                 Err(e) => fail(e),
             }
@@ -2123,26 +2169,26 @@ pub fn run() {
         .manage(AppState::new())
         .manage(agent_hook::PendingApprovals::default())
         .setup(|app| {
-        register_hotkeys(app.handle());
-        if build_tray(app.handle()).is_err() {
-        // Best effort: tray is convenience, recorder works without it.
-        }
-        spawn_toggle_socket(app.handle().clone());
-        agent_hook::spawn_agents_socket(app.handle().clone());
-        agent_hook::ensure_relay_installed();
-        spawn_main_thread_watchdog(app.handle().clone());
-        // Warmup au démarrage : STT daemon + LLM déjà chargés avant la
-        // première dictée (mesuré : reload Ollama ~7 s à froid). Best effort,
-        // en arrière-plan, jamais bloquant.
-        std::thread::Builder::new()
-            .name("whisp-warmup".to_string())
-            .spawn(|| {
-                let _ = stt::ensure_daemon(&config::stt_model_name());
-                llm::warm();
-            })
-            .ok();
-        // Recorder starts hidden (see tauri.conf.json `visible: false`).
-        Ok(())
+            register_hotkeys(app.handle());
+            if build_tray(app.handle()).is_err() {
+                // Best effort: tray is convenience, recorder works without it.
+            }
+            spawn_toggle_socket(app.handle().clone());
+            agent_hook::spawn_agents_socket(app.handle().clone());
+            agent_hook::ensure_relay_installed();
+            spawn_main_thread_watchdog(app.handle().clone());
+            // Warmup au démarrage : STT daemon + LLM déjà chargés avant la
+            // première dictée (mesuré : reload Ollama ~7 s à froid). Best effort,
+            // en arrière-plan, jamais bloquant.
+            std::thread::Builder::new()
+                .name("whisp-warmup".to_string())
+                .spawn(|| {
+                    let _ = stt::ensure_daemon(&config::stt_model_name());
+                    llm::warm();
+                })
+                .ok();
+            // Recorder starts hidden (see tauri.conf.json `visible: false`).
+            Ok(())
         })
         .on_menu_event(|app, event| on_tray_event(app, event.id.as_ref()))
         .on_window_event(|window, event| {
@@ -2187,12 +2233,12 @@ pub fn run() {
             get_autostart,
             set_autostart,
             shortcuts::list_shortcuts,
-        shortcuts::list_hotkeys,
-         shortcuts::set_hotkey,
-        shortcuts::pause_hotkeys,
-        shortcuts::resume_hotkeys,
-        shortcuts::reset_hotkeys,
-         shortcuts::reload_hyprland,
+            shortcuts::list_hotkeys,
+            shortcuts::set_hotkey,
+            shortcuts::pause_hotkeys,
+            shortcuts::resume_hotkeys,
+            shortcuts::reset_hotkeys,
+            shortcuts::reload_hyprland,
             appearance::set_popup_size,
             updates::app_version,
             updates::check_updates,
@@ -2203,7 +2249,10 @@ pub fn run() {
             show_window,
         ])
         .build(tauri::generate_context!())
-        .unwrap_or_else(|e| { eprintln!("[whisp] tauri build failed: {e}"); std::process::exit(1); })
+        .unwrap_or_else(|e| {
+            eprintln!("[whisp] tauri build failed: {e}");
+            std::process::exit(1);
+        })
         .run(|_app, event| {
             if matches!(
                 event,

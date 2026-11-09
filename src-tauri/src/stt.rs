@@ -466,20 +466,40 @@ fn secret_tool_get() -> Option<String> {
     // Contourne le crate keyring défectueux via le CLI libsecret (si présent).
     // `timeout 3` évite de figer stop/transcribe si le daemon secret est pendu.
     let out = std::process::Command::new("timeout")
-        .args(["3", "secret-tool", "lookup", "service", KEYRING_SERVICE, "account", KEYRING_FISH_USER])
+        .args([
+            "3",
+            "secret-tool",
+            "lookup",
+            "service",
+            KEYRING_SERVICE,
+            "account",
+            KEYRING_FISH_USER,
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    String::from_utf8(out.stdout).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    String::from_utf8(out.stdout)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn secret_tool_set(key: &str) -> bool {
     use std::io::Write;
     // secret-tool lit le secret sur stdin.
     let mut child = std::process::Command::new("timeout")
-        .args(["3", "secret-tool", "store", "--label=whisp fish_audio", "service", KEYRING_SERVICE, "account", KEYRING_FISH_USER])
+        .args([
+            "3",
+            "secret-tool",
+            "store",
+            "--label=whisp fish_audio",
+            "service",
+            KEYRING_SERVICE,
+            "account",
+            KEYRING_FISH_USER,
+        ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

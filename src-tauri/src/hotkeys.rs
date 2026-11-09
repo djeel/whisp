@@ -51,7 +51,10 @@ pub fn toggle_shortcut() -> tauri_plugin_global_shortcut::Shortcut {
 }
 
 pub fn push_to_talk_shortcut() -> tauri_plugin_global_shortcut::Shortcut {
-    configured_or_default(crate::config::load().hotkey_push_to_talk, DEFAULT_PUSH_TO_TALK)
+    configured_or_default(
+        crate::config::load().hotkey_push_to_talk,
+        DEFAULT_PUSH_TO_TALK,
+    )
 }
 
 pub fn cycle_mode_shortcut() -> tauri_plugin_global_shortcut::Shortcut {
@@ -155,9 +158,18 @@ mod tests {
 
     #[test]
     fn parse_accepts_canonical_forms() {
-        assert_eq!(parse_shortcut("alt+Space").unwrap().to_string(), "alt+Space");
-        assert_eq!(parse_shortcut("control+alt+Space").unwrap().to_string(), "control+alt+Space");
-        assert_eq!(parse_shortcut("ctrl+shift+F1").unwrap().to_string(), "shift+control+F1");
+        assert_eq!(
+            parse_shortcut("alt+Space").unwrap().to_string(),
+            "alt+Space"
+        );
+        assert_eq!(
+            parse_shortcut("control+alt+Space").unwrap().to_string(),
+            "control+alt+Space"
+        );
+        assert_eq!(
+            parse_shortcut("ctrl+shift+F1").unwrap().to_string(),
+            "shift+control+F1"
+        );
         assert!(parse_shortcut("").is_err());
         assert!(parse_shortcut("control+alt").is_err());
     }

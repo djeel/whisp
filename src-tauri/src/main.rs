@@ -33,7 +33,11 @@ fn main() {
 /// tout le reste en JSON + token (cf. socket::verify_token côté backend).
 /// `cycle-mode` (CLI, avec tiret) est mappé vers `cycle_mode` (socket).
 fn build_line(cmd: &str, rest: &[String]) -> String {
-    let cmd = if cmd == "cycle-mode" { "cycle_mode" } else { cmd };
+    let cmd = if cmd == "cycle-mode" {
+        "cycle_mode"
+    } else {
+        cmd
+    };
     if cmd == "toggle" {
         return "toggle\n".to_string();
     }

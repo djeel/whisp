@@ -182,11 +182,15 @@ fn validate_http_url(field: &str, v: &str) -> Result<(), String> {
         .or_else(|| v.strip_prefix("https://"))
         .ok_or_else(|| format!("{field} must start with http:// or https:// (got '{v}')"))?;
     if rest.is_empty() || v.contains(char::is_whitespace) {
-        return Err(format!("{field} needs an http(s) URL with a host (got '{v}')"));
+        return Err(format!(
+            "{field} needs an http(s) URL with a host (got '{v}')"
+        ));
     }
     let host = rest.split(['/', '?', '#', ':']).next().unwrap_or("");
     if host.is_empty() {
-        return Err(format!("{field} needs an http(s) URL with a host (got '{v}')"));
+        return Err(format!(
+            "{field} needs an http(s) URL with a host (got '{v}')"
+        ));
     }
     if blocked_metadata_host(host) {
         return Err(format!("{field} metadata cloud bloquée (got '{v}')"));

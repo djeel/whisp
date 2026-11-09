@@ -145,11 +145,7 @@ pub fn app_version() -> String {
 /// Compare local version with the latest GitHub release.
 #[tauri::command]
 pub fn check_updates() -> UpdateInfo {
-    if let Some((at, cached)) = LAST_CHECK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    {
+    if let Some((at, cached)) = LAST_CHECK.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         if at.elapsed() < CACHE_TTL {
             return cached;
         }

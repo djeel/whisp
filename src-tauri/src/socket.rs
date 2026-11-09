@@ -84,7 +84,8 @@ pub fn load_or_create_token() -> String {
             return s;
         }
     }
-    let tok = uuid::Uuid::new_v4().to_string().replace("-", "") + &uuid::Uuid::new_v4().to_string().replace("-", "");
+    let tok = uuid::Uuid::new_v4().to_string().replace("-", "")
+        + &uuid::Uuid::new_v4().to_string().replace("-", "");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -104,11 +105,17 @@ pub fn load_or_create_token() -> String {
 /// Check a JSON command value for a valid token (`token` or `auth` field).
 /// Missing token file = allow (first boot before creation), otherwise strict.
 pub fn verify_token(v: &serde_json::Value) -> bool {
-    let provided = v.get("token").or_else(|| v.get("auth")).and_then(|x| x.as_str()).unwrap_or("");
+    let provided = v
+        .get("token")
+        .or_else(|| v.get("auth"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
     if provided.is_empty() {
         return false;
     }
-    let expected = std::fs::read_to_string(token_path()).map(|s| s.trim().to_string()).unwrap_or_default();
+    let expected = std::fs::read_to_string(token_path())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
     if expected.len() < 16 {
         // No token yet (fresh install): create one and allow this once so the
         // bridge never deadlocks on first run.
@@ -116,7 +123,12 @@ pub fn verify_token(v: &serde_json::Value) -> bool {
         return true;
     }
     // Constant-time-ish compare (avoid trivial timing leak on local socket).
-    provided.len() == expected.len() && provided.bytes().zip(expected.bytes()).fold(0, |a, (x, y)| a | (x ^ y)) == 0
+    provided.len() == expected.len()
+        && provided
+            .bytes()
+            .zip(expected.bytes())
+            .fold(0, |a, (x, y)| a | (x ^ y))
+            == 0
 }
 
 #[cfg(test)]
