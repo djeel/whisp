@@ -169,8 +169,6 @@ pub fn maybe_speak_voice_reply(question: &str, emit: impl Fn(bool) + Send + 'sta
         .name("whisp-voice-reply".to_string())
         .spawn(move || {
             emit(true);
-            use tauri::Emitter;
-            // 1. Réponse LLM via le chat provider configuré.
             let provider = crate::config::load()
                 .chat_provider
                 .filter(|s| !s.trim().is_empty())

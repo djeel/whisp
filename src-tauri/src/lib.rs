@@ -1086,7 +1086,6 @@ fn fit_window(app: tauri::AppHandle, w: f64, h: f64) -> Result<String, String> {
         let px = pos.x as f64 / sc;
         let py = pos.y as f64 / sc;
         if let Ok(Some(monitor)) = win.current_monitor() {
-            use tauri::Monitor;
             let factor = monitor.scale_factor();
             let mw = monitor.size().width as f64 / factor;
             let mx = monitor.position().x as f64 / factor;
