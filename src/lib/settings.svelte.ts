@@ -53,7 +53,6 @@ export interface AgentStatus {
 }
 
 export interface Prefs {
-  launchAtLogin: boolean;
   playSound: boolean;
   autoCopy: boolean;
   language: string;
@@ -83,7 +82,6 @@ export const POPUP_POS_OPTIONS: Array<{ id: PopupPos; label: string }> = [
 ];
 
 export const DEFAULT_PREFS: Prefs = {
-  launchAtLogin: false,
   playSound: true,
   autoCopy: true,
   language: "fr",
@@ -174,6 +172,8 @@ export class SettingsStore {
   size = $state<PopupSize>(isPopupSize(readStored("whisp:popup-size")) ? (readStored("whisp:popup-size") as PopupSize) : "M");
   opacity = $state<number>(typeof Number(readStored("whisp:card-opacity")) === "number" && Number(readStored("whisp:card-opacity")) >= 0.4 && Number(readStored("whisp:card-opacity")) <= 1 ? Number(readStored("whisp:card-opacity")) : 1);
   accentSource = $state<AccentSource>(readAccentSource());
+  launchAtLogin = $state<boolean>(readStored("whisp:launch-at-login") !== "0");
+  launchMsg = $state<string | null>(null);
   accentCustom = $state<string>(readAccentCustom());
   caelestia = $state<CaelestiaScheme | null>(null);
   sizeMsg = $state<string | null>(null);
@@ -344,6 +344,18 @@ export class SettingsStore {
       .catch(() => {
         if (this.live) this.agentHooks = null;
       });
+    // Autostart : le service systemd est la vérité (le pref local n'est
+    // qu'un repli hors Tauri). Évite le toggle cosmétique qui ignore l'état
+    // réel : get_autostart gagne, backend injoignable = état local conservé.
+    invoke<boolean>("get_autostart")
+      .then((v) => {
+        if (!this.live) return;
+        this.launchAtLogin = v === true;
+        writeStored("whisp:launch-at-login", this.launchAtLogin ? "1" : "0");
+      })
+      .catch(() => {
+        /* navigateur : repli localStorage */
+      });
     this.refreshAgentStatus();
     this.refreshChatKeyState();
     invoke<BackendMode[]>("list_modes")
@@ -437,6 +449,28 @@ export class SettingsStore {
   patchPrefs(patch: Partial<Prefs>): void {
     this.prefs = { ...this.prefs, ...patch };
     writeJSON("whisp:prefs", this.prefs);
+  }
+
+  /** Toggle "Lancer au démarrage" : pilote `whisp.service`, resync sur
+   * l'état réel (le localStorage ne suit qu'après succès backend). */
+  setLaunchAtLogin(next: boolean): void {
+    const prev = this.launchAtLogin;
+    this.launchAtLogin = next;
+    this.launchMsg = null;
+    writeStored("whisp:launch-at-login", next ? "1" : "0");
+    invoke<boolean>("set_autostart", { enabled: next })
+      .then((actual) => {
+        if (actual !== next) {
+          this.launchAtLogin = actual === true;
+          writeStored("whisp:launch-at-login", this.launchAtLogin ? "1" : "0");
+        }
+        this.launchMsg = this.launchAtLogin ? "Lancement au démarrage activé." : "Lancement au démarrage désactivé.";
+      })
+      .catch((e: unknown) => {
+        this.launchAtLogin = prev;
+        writeStored("whisp:launch-at-login", prev ? "1" : "0");
+        this.launchMsg = e instanceof Error ? e.message : String(e);
+      });
   }
 
   chooseMode(m: string): void {

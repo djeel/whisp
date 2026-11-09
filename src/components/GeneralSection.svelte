@@ -46,8 +46,9 @@
   </div>
   <div class="check-row">
     <span id="cfg-launch">Lancer au démarrage</span>
-    <Toggle checked={store.prefs.launchAtLogin} onchange={(v) => store.patchPrefs({ launchAtLogin: v })} label="Lancer au démarrage" />
+    <Toggle checked={store.launchAtLogin} onchange={(v) => store.setLaunchAtLogin(v)} label="Lancer au démarrage" />
   </div>
+  {#if store.launchMsg}<p class="card-hint" role="status">{store.launchMsg}</p>{/if}
   <div class="check-row">
     <span id="cfg-sound">Son de fin de transcription</span>
     <Toggle checked={store.prefs.playSound} onchange={(v) => store.patchPrefs({ playSound: v })} label="Son de fin de transcription" />

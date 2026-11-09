@@ -9,6 +9,7 @@
 mod agent_hook;
 mod appearance;
 mod audio;
+mod autostart;
 mod caelestia;
 mod config;
 mod history;
@@ -1505,6 +1506,26 @@ fn test_ollama(url: Option<String>) -> Result<String, String> {
     Ok(format!("Ollama OK ({base}, {n} modèle(s))"))
 }
 
+
+/// Autostart toggle (Settings → Application) : lit/pilote le service user
+/// `whisp.service` (install.sh). Nickel sur CachyOS : le binaire tourne en
+/// service user, pas de clés desktop à gérer. `set` applique seulement le
+/// delta (évite un `systemctl` qui clignote à chaque sync).
+#[tauri::command]
+fn get_autostart() -> bool {
+    autostart::is_enabled()
+}
+
+#[tauri::command]
+async fn set_autostart(enabled: bool) -> Result<bool, String> {
+    if autostart::is_enabled() == enabled {
+        return Ok(enabled);
+    }
+    // `systemctl enable/disable` peut attendre le bus : jamais sur GTK.
+    tauri::async_runtime::spawn_blocking(move || autostart::set_enabled(enabled))
+        .await
+        .map_err(|e| format!("autostart worker: {e}"))?
+}
  #[tauri::command]
 async fn list_input_devices() -> Vec<String> {
     // Énumération ALSA (jusqu'à 5 s sur certains systèmes) : jamais sur le
@@ -2163,8 +2184,9 @@ pub fn run() {
             agent_hook_status,
             install_agent_hooks,
             test_ollama,
-            voice::speak_text,
-         shortcuts::list_shortcuts,
+            get_autostart,
+            set_autostart,
+            shortcuts::list_shortcuts,
         shortcuts::list_hotkeys,
          shortcuts::set_hotkey,
         shortcuts::pause_hotkeys,
