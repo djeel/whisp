@@ -1,4 +1,9 @@
-/* whisp theme — Superwhisper-like recorder + settings */
+/* whisp theme — Superwhisper-like recorder + settings.
+ * Source de vérité : `src/lib/tokens.ts` (façon Herdr `themes/*.json`).
+ * `applyTheme()` (prefs.ts) pose ces mêmes variables inline : ce bloc
+ * `:root` n'est que le défaut avant JS (sombre). Pas de triplication
+ * dark/light/system ici — UNE seule définition, le variant light est
+ * piloté par `data-theme` + tokens.ts. */
 
 :root {
   --bg-card: #1e1e1e;
@@ -7,7 +12,7 @@
   --bg-input: #141414;
   --text: #e8e8e8;
   --muted: #9a9a9a;
-  --chip: #3a3a3a;
+  --chip: #262626;
   --green: #4ade80;
   --red: #ef4444;
   --line: rgba(255, 255, 255, 0.06);
@@ -15,46 +20,27 @@
   --accent: #e8e8e8;
   --accent-text: #141414;
   --wave-idle: #9a9a9a;
-  --wave-active: #ffffff;
+  --wave-active: #e8e8e8;
   --radius-card: 24px;
   --radius-panel: 16px;
   color-scheme: dark;
 }
 
-/* Explicit light theme (settings override) */
 :root[data-theme="light"] {
+  color-scheme: light;
   --bg-card: #f5f5f5;
   --bg-bar: #e8e8e8;
   --bg-app: #efefef;
   --bg-input: #ffffff;
   --text: #1a1a1a;
-  --muted: #6b6b6b;
-  --chip: #d0d0d0;
+  --muted: #595959;
+  --chip: #e2e2e2;
   --line: rgba(0, 0, 0, 0.08);
   --hover-wash: rgba(0, 0, 0, 0.05);
   --accent: #1a1a1a;
   --accent-text: #f5f5f5;
   --wave-idle: #b0b0b0;
   --wave-active: #1a1a1a;
-}
-
-/* System theme: follow OS when set to "system" (or unset) */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg-card: #f5f5f5;
-    --bg-bar: #e8e8e8;
-    --bg-app: #efefef;
-    --bg-input: #ffffff;
-    --text: #1a1a1a;
-    --muted: #6b6b6b;
-    --chip: #d0d0d0;
-    --line: rgba(0, 0, 0, 0.08);
-    --hover-wash: rgba(0, 0, 0, 0.05);
-    --accent: #1a1a1a;
-    --accent-text: #f5f5f5;
-    --wave-idle: #b0b0b0;
-    --wave-active: #1a1a1a;
-  }
 }
 
 * {
@@ -436,7 +422,10 @@ kbd {
   color: var(--text);
 }
 
-/* ---------- Settings (main window) : sidebar fixe + cards uniformes ---------- */
+/* ---------- Settings : shell Herdr (sidebar chrome + tab-bar pills) ----------
+ * Layout façon Herdr `main.json` : sidebar `chrome` (268px, header brand
+ * 46px + listes weight 1 + footer), zone travail avec tab-bar pills 42px.
+ * Mobile <720px : sidebar devient barre haute horizontale. */
 
 .settings {
   display: flex;
@@ -445,7 +434,7 @@ kbd {
 }
 
 .side {
-  width: 232px;
+  width: 268px;
   flex-shrink: 0;
   position: fixed;
   top: 0;
@@ -456,16 +445,17 @@ kbd {
   z-index: 10;
   background: var(--bg-card);
   border-right: 1px solid var(--line);
-  padding: 20px 14px;
+  padding: 0 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 46px;
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -481,13 +471,13 @@ kbd {
 .tab {
   text-align: left;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 10px;
   padding: 9px 12px;
   font-size: 14px;
   color: var(--muted);
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .tab:hover {
@@ -498,10 +488,10 @@ kbd {
 .tab.active {
   background: var(--hover-wash);
   color: var(--text);
+  border-color: var(--line);
 }
 
 /* Mochi + tenue : ancrés EN BAS de la sidebar, jamais en tête. */
-
 
 
 
@@ -510,13 +500,33 @@ kbd {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  margin-left: 232px;
+  margin-left: 268px;
   padding: 24px;
   padding-bottom: 64px;
   max-width: 880px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+@media (max-width: 720px) {
+  .side {
+    position: sticky;
+    top: 0;
+    width: auto;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .tabs {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .content {
+    margin-left: 0;
+  }
 }
 
 /* Cartes coucou : radius 16px, gap 18px (settings.css) — whisp garde ses
@@ -861,16 +871,7 @@ input[type="range"] {
 }
 
 
-/* Light theme : piste éteinte plus contrastée (AA sur fond clair). */
-:root[data-theme="light"] .switch {
-  border-color: rgba(0, 0, 0, 0.22);
-}
-
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .switch {
-    border-color: rgba(0, 0, 0, 0.22);
-  }
-}
+/* Switch : bordure éteinte via `--line` (tokens, AA des deux thèmes). */
 
 
 
@@ -1161,16 +1162,7 @@ input[type="range"] {
   margin-top: 4px;
 }
 
-/* Contrastes AA : durcir le gris moyen sur fond clair */
-:root[data-theme="light"] {
-  --muted: #595959;
-}
-
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --muted: #595959;
-  }
-}
+/* Contrastes AA : `--muted` light vient de tokens.ts (LIGHT.muted). */
 
 .stats-grid {
   display: grid;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Button from "./Button.svelte";
   import { onMount } from "svelte";
   import { check as checkUpdate, type DownloadEvent } from "@tauri-apps/plugin-updater";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -125,13 +126,13 @@
   {/if}
 
   <div class="row updates-actions">
-    <button type="button" class="ghost" onclick={() => void check()} disabled={checking || downloading}>
+    <Button onclick={() => void check()} disabled={checking || downloading} busy={checking}>
       {checking ? "Vérification…" : "Vérifier"}
-    </button>
+    </Button>
     {#if available}
-      <button type="button" class="primary" onclick={() => void install()} disabled={downloading}>
+      <Button variant="primary" onclick={() => void install()} disabled={downloading} busy={downloading}>
         {downloading ? `Installation…${progress !== null ? ` ${progress}%` : ""}` : `Installer ${available}`}
-      </button>
+      </Button>
     {/if}
   </div>
 </section>

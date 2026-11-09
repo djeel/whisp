@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Button from "./Button.svelte";
+  import Dot from "./Dot.svelte";
   import { invoke } from "../lib/tauri";
   import type { SettingsStore, TabId } from "../lib/settings.svelte";
   import StatsTab from "./StatsTab.svelte";
@@ -25,20 +27,20 @@
   </div>
   {#if store.setupState === "no-llm"}
     <div class="setup-banner" role="status">
-      <span class="setup-dot" aria-hidden="true"></span>
+      <Dot tone="done" pulse />
       <div class="setup-text">
         <strong>Voix + raffinage non configurés.</strong>
         <span>Sans Ollama ni clé Fish, la dictée colle le texte brut (sans ponctuation ni mise en forme).</span>
       </div>
       <div class="setup-actions">
-        <button type="button" class="primary" onclick={() => goAgents()}>Configurer</button>
+        <Button variant="primary" onclick={() => goAgents()}>Configurer</Button>
       </div>
     </div>
   {/if}
   <div class="row hero-actions">
-    <button type="button" class="primary" onclick={startRecording}>
+    <Button variant="primary" onclick={startRecording}>
       Démarrer l'enregistrement
-    </button>
+    </Button>
   </div>
   <p class="hints">
     <span>Stop <kbd>Alt + Espace</kbd></span>
@@ -69,18 +71,6 @@
     border: 1px solid var(--accent);
     border-radius: 12px;
     background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-  .setup-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--accent);
-    flex-shrink: 0;
-    animation: setup-pulse 2s infinite ease-in-out;
-  }
-  @keyframes setup-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
   }
   .setup-text {
     display: flex;

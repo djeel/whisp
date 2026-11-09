@@ -1,5 +1,17 @@
  # Changelog
- 
+
+## v0.1.4 — Design Herdr + autostart réel
+
+### Nouveau
+- Design tokens centralisés (`tokens.ts` façon `themes/*.json`) : une seule définition dark/light, fini la triplication CSS.
+- Composants unifiés `Button` (primary/ghost/danger-ghost, busy) et `Dot` (pastille/badge, tons working/blocked/done/idle).
+- Shell Herdr : sidebar 268px, onglets pills bordurés, breakpoint mobile <720px.
+- Toggle "Lancer au démarrage" branché sur `whisp.service` (`get_autostart`/`set_autostart`) : l'état réel, plus de localStorage cosmétique.
+
+### Correctifs
+- Thème light : l'accent (custom/Caelestia) ne réécrit plus le fond, fallback CSS complet, light vérifié en capture.
+- StatusBar "moteur prêt" supprimée de toutes les pages (restait affichée partout).
+
 ## v0.1.2 — QoL + Flatpak
 
 ### Nouveau

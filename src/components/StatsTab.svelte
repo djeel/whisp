@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Button from "./Button.svelte";
   import { onMount } from "svelte";
   import { invoke } from "../lib/tauri";
 
@@ -65,7 +66,7 @@
 {#if error && !stats}
   <div class="empty">
     <p class="muted">{error}</p>
-    <button type="button" class="ghost" onclick={refresh}>Réessayer</button>
+    <Button onclick={refresh}>Réessayer</Button>
   </div>
 {:else if !stats}
   <p class="muted" aria-live="polite">Chargement des statistiques…</p>
@@ -79,8 +80,8 @@
     {/each}
     <div class="row stats-foot">
       <span class="field-hint">{stats.total_entries} dictée{stats.total_entries > 1 ? "s" : ""} au total (150 mots/min).</span>
-      <button type="button" class="ghost" onclick={refresh}>Actualiser</button>
-      <button type="button" class="ghost" onclick={exportJson} disabled={exporting}>{exporting ? "Export…" : "Export JSON"}</button>
+      <Button onclick={refresh}>Actualiser</Button>
+      <Button onclick={exportJson} disabled={exporting} busy={exporting}>{exporting ? "Export…" : "Export JSON"}</Button>
     </div>
   </div>
   {#if error}

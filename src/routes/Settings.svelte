@@ -6,9 +6,9 @@
   import { onMount, onDestroy } from "svelte";
   import AppearanceSection from "../components/AppearanceSection.svelte";
   import AgentSection from "../components/AgentSection.svelte";
-    import GeneralSection from "../components/GeneralSection.svelte";
-  import HomeTab from "../components/HomeTab.svelte";
+  import GeneralSection from "../components/GeneralSection.svelte";
   import ShortcutsSection from "../components/ShortcutsSection.svelte";
+  import HomeTab from "../components/HomeTab.svelte";
   import StatsTab from "../components/StatsTab.svelte";
   import UpdatesSection from "../components/UpdatesSection.svelte";
   import { SettingsStore, FLOW_TABS, type TabId } from "../lib/settings.svelte";

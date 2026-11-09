@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Button from "./Button.svelte";
   import { onMount } from "svelte";
   import { invoke } from "../lib/tauri";
 
@@ -171,12 +172,12 @@
     {/each}
   </ul>
    <div class="row">
-     <button type="button" class="ghost" onclick={reload} disabled={reloading}>
-       {reloading ? "Rechargement…" : "Recharger Hyprland"}
-     </button>
-    <button type="button" class="ghost" onclick={resetDefaults} disabled={resetting || saving !== null} title="Restaure Alt+Espace, Ctrl+Alt+Espace, Ctrl+Alt+M">
+    <Button onclick={reload} disabled={reloading} busy={reloading}>
+      {reloading ? "Rechargement…" : "Recharger Hyprland"}
+    </Button>
+    <Button onclick={resetDefaults} disabled={resetting || saving !== null} busy={resetting} title="Restaure Alt+Espace, Ctrl+Alt+Espace, Ctrl+Alt+M">
       {resetting ? "Réinitialisation…" : "Réinitialiser"}
-    </button>
+    </Button>
      {#if msg}
        <span class="field-hint" role="status">{msg}</span>
      {/if}

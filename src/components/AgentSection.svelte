@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Button from "./Button.svelte";
+  import Dot from "./Dot.svelte";
   import Dropdown from "./Dropdown.svelte";
   import type { DropdownOption } from "./Dropdown.svelte";
   import Toggle from "./Toggle.svelte";
@@ -6,7 +8,6 @@
   import { CHAT_PROVIDERS, isChatProvider } from "../lib/chatProviders";
 
   let { store }: { store: SettingsStore } = $props();
-
   const AGENT_OPTS: DropdownOption[] = [
     { value: "omp", label: "omp (défaut)" },
     { value: "claude", label: "Claude Code" },
@@ -48,9 +49,9 @@
     <section class="agent-card" aria-label="Session agent">
       <div class="agent-head">
         <h2 class="agent-title">Session agent</h2>
-        <span class="agent-badge" class:on={store.agentStatus.active} aria-live="polite">
+        <Dot badge tone={store.agentStatus.active ? "working" : "idle"}>
           {store.agentStatus.active ? "Active" : "Aucune"}
-        </span>
+        </Dot>
       </div>
       <dl class="agent-rows">
         <div class="agent-row">
@@ -69,17 +70,15 @@
         </div>
       </dl>
       <div class="row agent-actions">
-        <button
-          type="button"
-          class="primary"
+        <Button
+          variant="primary"
           onclick={() => store.openAgentTerminal()}
           disabled={store.agentLaunching}
-          aria-busy={store.agentLaunching}
+          busy={store.agentLaunching}
         >
-          {#if store.agentLaunching}<span class="btn-spinner" aria-hidden="true"></span>{/if}
           {store.agentLaunching ? "Lancement…" : "Ouvrir le terminal"}
-        </button>
-        <button type="button" class="ghost" onclick={() => store.refreshAgentStatus()}>Actualiser</button>
+        </Button>
+        <Button onclick={() => store.refreshAgentStatus()}>Actualiser</Button>
       </div>
       {#if store.agentOpenMsg}<p class="field-hint" role="status">{store.agentOpenMsg}</p>{/if}
     </section>
@@ -94,19 +93,18 @@
   {#each store.agentHooks ?? [] as a (a.id)}
     <div class="check-row">
       <span>
-        <i class="dot" style:background={a.installed ? "#22c55e" : "#f4505e"}></i>
+        <Dot tone={a.installed ? "working" : "blocked"} />
         {a.name}
         <span class="field-hint"> — {a.installed ? "installé" : "non installé"} · {a.path}</span>
       </span>
-      <button
-        type="button"
-        class="primary"
+      <Button
+        variant="primary"
         disabled={store.agentBusy === a.id}
-        aria-busy={store.agentBusy === a.id}
+        busy={store.agentBusy === a.id}
         onclick={() => store.installAgent(a.id)}
       >
         {store.agentBusy === a.id ? "Installation…" : a.installed ? "Réinstaller" : "Installer"}
-      </button>
+      </Button>
     </div>
   {/each}
   {#if store.agentHooks === null}<p class="field-hint">Statut hooks indisponible (backend en cours).</p>{/if}
@@ -142,7 +140,7 @@
         autocomplete="off"
         spellcheck={false}
       />
-      <button type="button" class="primary" onclick={() => store.saveClaudeToken()}>Connecter</button>
+      <Button variant="primary" onclick={() => store.saveClaudeToken()}>Connecter</Button>
     </div>
     {#if store.claudeHint}
       <span class="field-hint">{store.claudeHint}</span>
@@ -221,7 +219,7 @@
           autocomplete="off"
           spellcheck={false}
         />
-        <button type="button" class="primary" onclick={() => store.saveChatKey()}>Connecter</button>
+        <Button variant="primary" onclick={() => store.saveChatKey()}>Connecter</Button>
       </div>
       {#if store.chatKeyHint}<span class="field-hint">{store.chatKeyHint}</span>{/if}
     </div>
@@ -238,7 +236,7 @@
           autocomplete="off"
           spellcheck={false}
         />
-        <button type="button" class="primary" onclick={() => store.saveChatKey()}>Enregistrer</button>
+        <Button variant="primary" onclick={() => store.saveChatKey()}>Enregistrer</Button>
       </div>
       {#if store.chatKeyHint}<span class="field-hint">{store.chatKeyHint}</span>{/if}
     </div>
@@ -272,9 +270,9 @@
     />
   </label>
   <div class="row">
-    <button type="button" class="ghost" onclick={() => store.testOllama()} disabled={store.ollamaBusy} aria-busy={store.ollamaBusy}>
+    <Button onclick={() => store.testOllama()} disabled={store.ollamaBusy} busy={store.ollamaBusy}>
       {store.ollamaBusy ? "Test…" : "Tester"}
-    </button>
+    </Button>
     {#if store.ollamaMsg}<span class="field-hint" role="status">{store.ollamaMsg}</span>{/if}
   </div>
 </section>
@@ -296,8 +294,8 @@
         autocomplete="off"
         spellcheck={false}
       />
-      <button type="button" class="primary" onclick={() => store.saveApiKey()}>Enregistrer</button>
-      <button type="button" class="ghost" onclick={() => store.testApiKey()}>Tester</button>
+      <Button variant="primary" onclick={() => store.saveApiKey()}>Enregistrer</Button>
+      <Button onclick={() => store.testApiKey()}>Tester</Button>
     </div>
     {#if store.apiHint}<span class="field-hint">{store.apiHint}</span>{/if}
   </div>
@@ -312,9 +310,9 @@
         autocomplete="off"
         spellcheck={false}
       />
-      <button type="button" class="primary" onclick={() => store.testVoice()} disabled={store.voiceTesting}>
+      <Button variant="primary" onclick={() => store.testVoice()} disabled={store.voiceTesting} busy={store.voiceTesting}>
         {store.voiceTesting ? "Lecture…" : "Tester"}
-      </button>
+      </Button>
     </div>
     {#if store.voiceMsg}<span class="field-hint" role="status">{store.voiceMsg}</span>{/if}
   </div>

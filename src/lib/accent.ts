@@ -48,8 +48,12 @@ export function textOnAccent(hex: string): string {
   return lum > 0.4 ? "#141414" : "#f5f5f5";
 }
 
-/** Variables posées par l'accent : tout retirer = retour au thème pur. */
-const ACCENT_VARS = ["--accent", "--accent-text", "--wave-active", "--bg-card", "--bg-app", "--text"] as const;
+/** Variables posées par l'accent : SEULEMENT l'accent, jamais le fond.
+ * L'ancien `ACCENT_VARS` incluait `--bg-card/--bg-app/--text` : Caelestia
+ * réécrivait tout le thème et le mode light ne s'appliquait plus. Le scheme
+ * Caelestia ne pose plus que `--accent*` + `--wave-active`, le thème reste
+ * piloté par tokens.ts via `data-theme`. */
+const ACCENT_VARS = ["--accent", "--accent-text", "--wave-active"] as const;
 
 export function clearAccentOverrides(): void {
   try {
@@ -75,10 +79,8 @@ export function applyAccent(source: AccentSource, custom: string, scheme: Caeles
       st.setProperty("--accent-text", textOnAccent(custom));
       st.setProperty("--wave-active", custom.toLowerCase());
     } else if (source === "caelestia" && scheme?.available) {
-      document.documentElement.dataset.theme = scheme.mode === "light" ? "light" : "dark";
-      st.setProperty("--bg-card", scheme.surface);
-      st.setProperty("--bg-app", scheme.background);
-      st.setProperty("--text", scheme.onSurface);
+      // Le scheme ne pilote que l'accent : le fond/texte reste au thème
+      // (tokens.ts). Évite que le fond d'écran casse le mode light.
       st.setProperty("--accent", scheme.primary);
       st.setProperty("--accent-text", scheme.onPrimary);
       st.setProperty("--wave-active", scheme.primary);
@@ -95,16 +97,8 @@ export function applyAccent(source: AccentSource, custom: string, scheme: Caeles
 
  /** Thème + accent d'un coup (ordre : thème d'abord, accent par-dessus). */
  export function applyAppearance(themePref: string | null, source: AccentSource, custom: string, scheme: CaelestiaScheme | null): void {
-   applyTheme(themePref);
-   applyAccent(source, custom, scheme);
-  // Caelestia impose son mode : réappliqué après applyTheme.
-   if (source === "caelestia" && scheme?.available) {
-    try {
-      document.documentElement.dataset.theme = scheme.mode === "light" ? "light" : "dark";
-    } catch {
-      /* no DOM */
-    }
-  }
+  applyTheme(themePref);
+  applyAccent(source, custom, scheme);
 }
 
 /** Scheme Caelestia via backend ; null hors Tauri ou Caelestia absent. */

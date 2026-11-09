@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Button from "./Button.svelte";
   import type { SettingsStore } from "../lib/settings.svelte";
 
   let { store }: { store: SettingsStore } = $props();
@@ -21,7 +22,7 @@
       placeholder="Ajouter un mot…"
       aria-label="Ajouter un mot au vocabulaire"
     />
-    <button type="submit" class="primary">Ajouter</button>
+    <Button variant="primary" onclick={() => store.addWord()}>Ajouter</Button>
   </form>
   {#if store.vocabMsg}
     <p class="field-hint" role="status">{store.vocabMsg}</p>
@@ -43,7 +44,7 @@
       {#each store.vocab as w, i (`${w}-${i}`)}
         <li>
           <span>{w}</span>
-          <button type="button" class="ghost" onclick={() => store.removeWord(i)}>Retirer</button>
+          <Button onclick={() => store.removeWord(i)}>Retirer</Button>
         </li>
       {/each}
     </ul>

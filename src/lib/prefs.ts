@@ -1,6 +1,8 @@
 /** Shared preference codec: one encoding for localStorage (no more
  * `"dark"`-with-quotes vs `dark` mismatch between App and Recorder). */
 
+import { DARK, LIGHT, themeVars } from "./tokens";
+
 export function readPref(key: string): string | null {
   try {
     const raw = localStorage.getItem(key);
@@ -35,11 +37,16 @@ export function resolveTheme(pref: string | null): "dark" | "light" {
   }
 }
 
-/** Apply resolved theme to <html data-theme="dark|light">. */
+/** Apply resolved theme to <html data-theme="dark|light"> + tokens vars.
+ * Les variables viennent de `tokens.ts` (source de vérité façon Herdr
+ * `themes/*.json`) : App.css ne fait que les consommer. */
 export function applyTheme(pref: string | null): "dark" | "light" {
   const resolved = resolveTheme(pref);
   try {
-    document.documentElement.dataset.theme = resolved;
+    const root = document.documentElement;
+    root.dataset.theme = resolved;
+    const vars = themeVars(resolved === "light" ? LIGHT : DARK);
+    for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   } catch {
     /* no DOM */
   }

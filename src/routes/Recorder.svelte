@@ -22,6 +22,8 @@
   import Mochi from "../components/Mochi.svelte";
   import Waveform from "../components/Waveform.svelte";
   import ApprovalCard from "../components/ApprovalCard.svelte";
+  import Button from "../components/Button.svelte";
+  import Dot from "../components/Dot.svelte";
   import {
     EXPAND_ICON,
     isTauri,
@@ -577,9 +579,7 @@
     {#if isAgent}
       <div class="agent-module" role="status" aria-label="Agent">
         <div class="agent-header">
-          <span class="agent-avatar{agentActive ? ' busy' : ''}" aria-hidden="true">
-            <span class="agent-dot{agentActive ? ' on' : ''}"></span>
-          </span>
+          <Dot tone={agentActive ? "working" : "idle"} pulse={agentActive} />
           <div class="agent-title-block">
             <span class="agent-title">{agentName}{agentActive ? " · travaille…" : ""}</span>
             <span class="agent-subtitle" title={agentCwd ?? undefined}>
@@ -591,37 +591,28 @@
             </span>
           </div>
           <span class="agent-spacer"></span>
-          <button
-            type="button"
-            class="agent-btn"
-            onclick={openAgentTerm}
-            title="Ouvrir le terminal agent"
-          >
+          <Button size="sm" onclick={openAgentTerm} title="Ouvrir le terminal agent">
             Terminal
-          </button>
+          </Button>
           {#if agentActive}
-            <button
-              type="button"
-              class="agent-btn stop"
+            <Button
+              size="sm"
+              variant="danger-ghost"
               onclick={stopAgent}
               disabled={agentStopping}
+              busy={agentStopping}
               title="Stopper l'agent en cours (Ctrl-C)"
             >
-              {agentStopping ? "Stop…" : "Stop"}
-            </button>
+              Stop
+            </Button>
           {/if}
         </div>
         {#if status === "error" && message}
           <div class="agent-error" role="alert">
             <span class="agent-error-msg">{message}</span>
-            <button
-              type="button"
-              class="agent-btn"
-              onclick={openAgentTerm}
-              title="Ouvrir le terminal agent"
-            >
+            <Button size="sm" onclick={openAgentTerm} title="Ouvrir le terminal agent">
               Ouvrir le terminal
-            </button>
+            </Button>
           </div>
         {/if}
         {#each approvals.slice(0, 1) as a (a.request_id)}
@@ -639,7 +630,7 @@
       <div class="bar-left">
         <button type="button" class="mode-btn" onclick={cycleMode} title="Changer de mode (Tab)">
           {#if status === "recording"}
-            <span class="rec-dot" aria-label="Enregistrement en cours"></span>
+            <Dot tone="blocked" pulse />
           {:else}
             <span class="mic">{@html MIC_ICON}</span>
           {/if}
@@ -648,11 +639,11 @@
         </button>
       </div>
       <div class="recorder-actions">
-        <button type="button" class="rec-btn stop" onclick={stop}>
+        <Button variant="primary" size="sm" onclick={stop}>
           Stop <kbd>Alt</kbd>
           <kbd>Espace</kbd>
-        </button>
-        <button type="button" class="rec-btn cancel" onclick={cancel}>Cancel <kbd>Échap</kbd></button>
+        </Button>
+        <Button variant="ghost" size="sm" onclick={cancel}>Cancel <kbd>Échap</kbd></Button>
       </div>
     </div>
   </div>
