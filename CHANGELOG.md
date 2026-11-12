@@ -1,6 +1,6 @@
  # Changelog
 
-## Non publié — mission « all-six » (branche `review/all-six`)
+## v0.1.5 — VAD, re-paste+undo, Santé, historique chiffré
 
 ### Nouveau
 - Stop auto sur silence (VAD, ~1,2 s après la parole, réglable 500–5000 ms) + fix `clippy::unused_mut`.
