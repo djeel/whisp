@@ -35,7 +35,7 @@ modules:
     buildsystem: simple
     build-commands:
       - mkdir -p /app/lib/node
-      - tar -xzf node.tar.gz -C /app/lib/node --strip-components=1
+      - cp -r node-v20.18.1-linux-x64/* /app/lib/node/
       - mkdir -p /app/bin
       - ln -s /app/lib/node/bin/node /app/bin/node
       - ln -s /app/lib/node/bin/npm /app/bin/npm
@@ -45,7 +45,6 @@ modules:
       - type: archive
         url: https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-x64.tar.gz
         sha256: 259e5a8bf2e15ecece65bd2a47153262eda71c0b2c9700d5e703ce4951572784
-        dest-filename: node.tar.gz
 
   - name: bun
     buildsystem: simple
