@@ -1702,12 +1702,9 @@ fn health_report(app: tauri::AppHandle) -> serde_json::Value {
         .as_ref()
         .map(|s| current_mode_id(s))
         .unwrap_or_else(|| "message".to_string());
-    let last_run = state.as_ref().and_then(|s| {
-        s.last_run
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    });
+    let last_run = state
+        .as_ref()
+        .and_then(|s| s.last_run.lock().unwrap_or_else(|e| e.into_inner()).clone());
     let cfg = config::load();
     let ollama_base = cfg
         .ollama_url

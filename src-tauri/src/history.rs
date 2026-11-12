@@ -393,7 +393,10 @@ mod history_crypto_tests {
         // Deux chiffrements du même clair diffèrent (nonce aléatoire).
         let again = encrypt_with(&KEY_A, "bonjour le monde").expect("encrypt");
         assert_ne!(stored, again);
-        assert_eq!(decrypt_with(&KEY_A, &stored).expect("decrypt"), "bonjour le monde");
+        assert_eq!(
+            decrypt_with(&KEY_A, &stored).expect("decrypt"),
+            "bonjour le monde"
+        );
     }
 
     #[test]
