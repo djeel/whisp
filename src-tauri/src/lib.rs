@@ -421,7 +421,7 @@ async fn finish_from_handle(
         // popup a le focus, wtype colle dedans : on refocus d'abord la cible
         // mémorisée ? Non — Hyprland garde le focus précédent quand la popup
         // est `focus: false`. Le vrai fix est côté fenêtre : pas de focus.
-        paste_text(&text_final);
+        paste_text(&app, &text_final);
         false
     } else {
         // Collage auto désactivé : texte en presse-papiers + historique uniquement.
@@ -1065,10 +1065,18 @@ fn copy_to_clipboard(text: &str) -> bool {
         .is_ok()
 }
 
-fn paste_text(text: &str) {
+fn paste_text(app: &tauri::AppHandle, text: &str) {
     if text.trim().is_empty() {
         return;
     }
+    // Presse-papiers d'avant, capturé AVANT écrasement (restauré par undo).
+    let before = match run_timed_out(
+        &["wl-paste", "--type", "text/plain", "--no-newline"],
+        Duration::from_secs(2),
+    ) {
+        Ok(s) if !s.is_empty() => Some(s),
+        _ => None,
+    };
     let wl_ok = copy_to_clipboard(text);
     // Le hide a déjà rendu le focus à l'app cible ; laisser le compositor
     // finir avant d'envoyer Ctrl+V (sinon la frappe part dans le vide).
@@ -1094,7 +1102,94 @@ fn paste_text(text: &str) {
         // Plus de collage silencieux : même presse-papiers OK, le toggle est ON.
         eprintln!("[whisp] paste failed (wtype/ydotool/xdotool): clipboard_ok={wl_ok}");
     }
+    // Mémorise le collage pour `undo_paste` (+ presse-papiers d'avant).
+    let pasted_chars = text.chars().count();
+    if pasted_chars > 0 {
+        if let Ok(state) = app.try_state::<AppState>() {
+            *state.last_paste.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastPaste {
+                pasted_chars,
+                clipboard_before: before,
+            });
+        }
+    }
     // Text stays in history either way (best effort).
+}
+
+// ---------------------------------------------------------------------------
+// Re-paste + annulation du collage (chantier "repaste & undo")
+// ---------------------------------------------------------------------------
+
+/// Envoie `n` Retours arrière (plafonné) pour effacer le dernier collage.
+fn press_backspace(n: usize) -> Result<(), String> {
+    let n = n.min(5000);
+    if n == 0 {
+        return Ok(());
+    }
+    // wtype accepte une séquence de `-k` en un seul appel.
+    let mut wtype_argv: Vec<String> = Vec::with_capacity(n * 2);
+    for _ in 0..n {
+        wtype_argv.push("-k".to_string());
+        wtype_argv.push("BackSpace".to_string());
+    }
+    let mut wtype_refs: Vec<&str> = vec!["wtype"];
+    wtype_refs.extend(wtype_argv.iter().map(|s| s.as_str()));
+    if run_timed(&wtype_refs, PASTE_TIMEOUT).is_ok() {
+        return Ok(());
+    }
+    let mut y_argv: Vec<String> = Vec::with_capacity(n * 2);
+    for _ in 0..n {
+        y_argv.push("14:1".to_string());
+        y_argv.push("14:0".to_string());
+    }
+    let mut y_refs: Vec<&str> = vec!["ydotool", "key"];
+    y_refs.extend(y_argv.iter().map(|s| s.as_str()));
+    if run_timed(&y_refs, PASTE_TIMEOUT).is_ok() {
+        return Ok(());
+    }
+    let mut x_argv: Vec<&str> = Vec::with_capacity(n + 2);
+    x_argv.push("xdotool");
+    x_argv.push("key");
+    for _ in 0..n {
+        x_argv.push("BackSpace");
+    }
+    run_timed(&x_argv, PASTE_TIMEOUT)
+}
+
+/// Cœur de `undo_paste` (commande Tauri + socket) : efface le dernier
+/// collage et restaure le presse-papiers d'avant. Consomme le slot.
+fn undo_paste_inner(app: &tauri::AppHandle) -> Result<usize, String> {
+    let slot = app
+        .try_state::<AppState>()
+        .ok_or_else(|| "état indisponible".to_string())?
+        .last_paste
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    let slot = slot.ok_or_else(|| "rien à annuler".to_string())?;
+    press_backspace(slot.pasted_chars)?;
+    if let Some(before) = slot.clipboard_before {
+        copy_to_clipboard(&before);
+    }
+    Ok(slot.pasted_chars)
+}
+
+#[tauri::command]
+fn undo_paste(app: tauri::AppHandle) -> Result<String, String> {
+    undo_paste_inner(&app).map(|n| format!("collage annulé ({n} car.)"))
+}
+
+/// Cœur de `repaste` (commande Tauri + socket) : re-colle une entrée
+/// d'historique au curseur. Met à jour le slot undo via `paste_text`.
+fn repaste_inner(app: &tauri::AppHandle, id: &str) -> Result<usize, String> {
+    let entry = history::get(id)?.ok_or_else(|| format!("entrée '{id}' introuvable"))?;
+    let chars = entry.text_final.chars().count();
+    paste_text(app, &entry.text_final);
+    Ok(chars)
+}
+
+#[tauri::command]
+fn repaste(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    repaste_inner(&app, &id).map(|n| format!("re-collé ({n} car.)"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,7 +1280,20 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<StopResult, String> {
         .unwrap_or_else(|| "message".to_string());
     let mode = modes::get_mode(&mode_id)
         .unwrap_or_else(|| modes::builtin_modes().into_iter().next().unwrap());
-    do_finish(app, mode).await
+    let t0 = std::time::Instant::now();
+    let out = do_finish(app.clone(), mode.clone()).await;
+    // Rapport santé (item 4) : durée du dernier pipeline, même en échec.
+    if let Ok(state) = app.try_state::<AppState>() {
+        *state.last_run.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastRun {
+            ms: t0.elapsed().as_millis() as u64,
+            at_unix: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            mode: mode.id.clone(),
+        });
+    }
+    out
 }
 
 #[tauri::command]
@@ -2176,6 +2284,8 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 str_field("hotkeyToggle"),
                 str_field("hotkeyPushToTalk"),
                 str_field("hotkeyCycleMode"),
+                v.get("autoStop").and_then(|x| x.as_bool()),
+                v.get("autoStopSilenceMs").and_then(|x| x.as_u64()),
             ) {
                 Ok(()) => ok(serde_json::json!(config::load())),
                 Err(e) => fail(e),
@@ -2223,6 +2333,23 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 Err(e) => fail(e),
             }
         }
+        // Re-colle une entrée d'historique au curseur (met à jour le slot undo).
+        "repaste" => {
+            let id = v
+                .get("id")
+                .and_then(|i| i.as_str())
+                .unwrap_or("")
+                .to_string();
+            match repaste_inner(&app, &id) {
+                Ok(chars) => ok(serde_json::json!({ "repasted_chars": chars })),
+                Err(e) => fail(e),
+            }
+        }
+        // Annule le dernier collage (efface + restaure le presse-papiers).
+        "undo_paste" => match undo_paste_inner(&app) {
+            Ok(chars) => ok(serde_json::json!({ "undone_chars": chars })),
+            Err(e) => fail(e),
+        },
         "" => fail("missing cmd".to_string()),
         other => fail(format!("unknown cmd '{other}'")),
     }
@@ -2282,6 +2409,8 @@ pub fn run() {
             delete_mode,
             list_history,
             delete_history,
+            repaste,
+            undo_paste,
             get_config,
             set_config,
             claude_status,

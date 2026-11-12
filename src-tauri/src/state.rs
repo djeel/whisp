@@ -17,6 +17,26 @@ pub struct AppState {
     pub agent_running: std::sync::atomic::AtomicBool,
     /// Échap pendant la réponse vocale : le thread TTS s'arrête avant de jouer.
     pub voice_cancel: std::sync::atomic::AtomicBool,
+    /// Dernier collage (pour `undo_paste`) : caractères collés + contenu
+    /// du presse-papiers d'avant (restauré à l'annulation).
+    pub last_paste: std::sync::Mutex<Option<LastPaste>>,
+    /// Dernière dictée terminée (rapport santé) : durée pipeline + horodatage.
+    pub last_run: std::sync::Mutex<Option<LastRun>>,
+}
+
+/// Slot d'annulation du dernier collage.
+#[derive(Debug, Clone)]
+pub struct LastPaste {
+    pub pasted_chars: usize,
+    pub clipboard_before: Option<String>,
+}
+
+/// Durée du dernier pipeline terminé.
+#[derive(Debug, Clone, Serialize)]
+pub struct LastRun {
+    pub ms: u64,
+    pub at_unix: u64,
+    pub mode: String,
 }
 
 impl AppState {
@@ -28,6 +48,8 @@ impl AppState {
             transcribing: std::sync::atomic::AtomicBool::new(false),
             agent_running: std::sync::atomic::AtomicBool::new(false),
             voice_cancel: std::sync::atomic::AtomicBool::new(false),
+            last_paste: std::sync::Mutex::new(None),
+            last_run: std::sync::Mutex::new(None),
         }
     }
 
@@ -39,6 +61,24 @@ impl AppState {
 
     pub fn mode_lock(&self) -> std::sync::MutexGuard<'_, String> {
         self.mode_id.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    #[test]
+    fn last_paste_slot_take_consumes() {
+        let s = AppState::new();
+        *s.last_paste.lock().unwrap() = Some(LastPaste {
+            pasted_chars: 42,
+            clipboard_before: Some("avant".to_string()),
+        });
+        let taken = s.last_paste.lock().unwrap().take();
+        assert!(taken.is_some_and(|p| p.pasted_chars == 42));
+        // Second take : slot vide → undo répondra "rien à annuler".
+        assert!(s.last_paste.lock().unwrap().take().is_none());
     }
 }
 

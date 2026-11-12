@@ -6,6 +6,7 @@
   import StatsTab from "./StatsTab.svelte";
   import ModesTab from "./ModesTab.svelte";
   import VocabTab from "./VocabTab.svelte";
+  import HistoryTab from "./HistoryTab.svelte";
 
   let { store, goTab }: { store: SettingsStore; goTab: (t: TabId) => void } = $props();
 
@@ -50,6 +51,7 @@
 
 <ModesTab {store} />
 <VocabTab {store} />
+<HistoryTab />
 <section class="panel">
   <div class="card-head">
     <h2>Activité</h2>
