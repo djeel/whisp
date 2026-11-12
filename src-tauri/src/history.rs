@@ -12,8 +12,8 @@
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use chacha20poly1305::{
-    aead::{Aead, NewAead},
-    Key, XChaCha20Poly1305, XNonce,
+    aead::{Aead, OsRng},
+    AeadCore, KeyInit, XChaCha20Poly1305, XNonce,
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -57,19 +57,11 @@ fn history_key() -> Result<[u8; 32], String> {
     Ok(k)
 }
 
-fn random_nonce() -> Result<[u8; 24], String> {
-    use std::io::Read;
-    let mut f = std::fs::File::open("/dev/urandom").map_err(|e| format!("urandom: {e}"))?;
-    let mut n = [0u8; 24];
-    f.read_exact(&mut n).map_err(|e| format!("urandom: {e}"))?;
-    Ok(n)
-}
-
 fn encrypt_with(key: &[u8; 32], plain: &str) -> Result<String, String> {
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
-    let nonce = random_nonce()?;
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| format!("clé: {e}"))?;
+    let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
     let ct = cipher
-        .encrypt(XNonce::from_slice(&nonce), plain.as_bytes())
+        .encrypt(&nonce, plain.as_bytes())
         .map_err(|e| format!("chiffrement: {e}"))?;
     let mut blob = Vec::with_capacity(24 + ct.len());
     blob.extend_from_slice(&nonce);
@@ -87,7 +79,7 @@ fn decrypt_with(key: &[u8; 32], stored: &str) -> Result<String, String> {
     if blob.len() < 24 + 16 {
         return Err("blob history trop court".to_string());
     }
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| format!("clé: {e}"))?;
     let pt = cipher
         .decrypt(XNonce::from_slice(&blob[..24]), &blob[24..])
         .map_err(|_| "clé machine différente ?".to_string())?;
