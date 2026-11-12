@@ -592,9 +592,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// `set` prend 28 params positionnels (même ordre que la struct).
+    /// `set` prend 31 params positionnels (même ordre que la struct).
     /// Helpers : un seul champ `Some`, le reste `None` — comptage vérifiable
-    /// ligne à ligne (12 + 12 + 4).
+    /// ligne à ligne (1 + 30).
     fn set_popup_pos(v: String) -> Result<(), String> {
         set(
             Some(v),

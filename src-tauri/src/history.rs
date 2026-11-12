@@ -149,7 +149,7 @@ fn connect() -> Result<Connection, String> {
     Ok(conn)
 }
 
-fn row_to_entry(row: &Row) -> rusqlite::Result<HistoryEntry> {
+fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
     // Textes déchiffrés à la lecture (legacy en clair accepté, cf. `plain`).
     let transcript_raw: String = row.get(3)?;
     let text_final: String = row.get(4)?;

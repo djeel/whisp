@@ -26,7 +26,10 @@ mod voice;
 use std::time::Duration;
 
 use crate::llm::Llm as _;
-use crate::state::{current_mode_id, emit_mode_changed, emit_state, hide_recorder, show_recorder};
+use crate::state::{
+    current_mode_id, emit_mode_changed, emit_state, hide_recorder, show_recorder, LastPaste,
+    LastRun,
+};
 use crate::stt::Stt as _;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
@@ -564,6 +567,9 @@ fn tmux_session_active() -> bool {
 /// (`omp -p …`) is never waited on (fire-and-forget into the session
 /// shell), so no long timeout is needed anywhere here.
 const TMUX_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Délai max pour un collage/annulation de collage (wtype/ydotool/xdotool).
+const PASTE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// True when the tmux *server* answers for the session, not just that the
 /// session name exists. `has-session` can succeed while the server is
@@ -1105,7 +1111,7 @@ fn paste_text(app: &tauri::AppHandle, text: &str) {
     // Mémorise le collage pour `undo_paste` (+ presse-papiers d'avant).
     let pasted_chars = text.chars().count();
     if pasted_chars > 0 {
-        if let Ok(state) = app.try_state::<AppState>() {
+        if let Some(state) = app.try_state::<AppState>() {
             *state.last_paste.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastPaste {
                 pasted_chars,
                 clipboard_before: before,
@@ -1283,7 +1289,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<StopResult, String> {
     let t0 = std::time::Instant::now();
     let out = do_finish(app.clone(), mode.clone()).await;
     // Rapport santé (item 4) : durée du dernier pipeline, même en échec.
-    if let Ok(state) = app.try_state::<AppState>() {
+    if let Some(state) = app.try_state::<AppState>() {
         *state.last_run.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastRun {
             ms: t0.elapsed().as_millis() as u64,
             at_unix: std::time::SystemTime::now()
