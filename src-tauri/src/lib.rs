@@ -172,31 +172,37 @@ fn spawn_vad_watchdog(app: tauri::AppHandle) {
     std::thread::Builder::new()
         .name("whisp-vad-watchdog".to_string())
         .spawn(move || {
-            let mut vad = audio::Vad::default();
+            let mut vad = audio::Vad::default_16k();
             let mut heard_speech = false;
             let mut silent_ms: u64 = 0;
             let mut total_ms: u64 = 0;
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 total_ms += 200;
-                let recording = matches!(
-                    app.try_state::<AppState>()
-                        .map(|s: State<'_, AppState>| s.session_snapshot()),
-                    Some(SessionState::Recording(_))
-                );
-                if !recording {
-                    return;
-                }
                 let frame = app
                     .try_state::<AppState>()
                     .and_then(|s: State<'_, AppState>| {
-                        s.session
-                            .lock()
-                            .ok()
-                            .and_then(|g| g.handle().map(|h| h.snapshot_last(3200)))
+                        s.session.lock().ok().and_then(|g| match &*g {
+                            SessionState::Recording(h) => Some(h.snapshot_last(3200)),
+                            _ => None,
+                        })
                     })
                     .unwrap_or_default();
+                // Fin d'enregistrement (stop manuel, cancel, erreur) : le
+                // watchdog s'éteint — jamais de stop fantôme après coup.
                 if frame.is_empty() {
+                    let still = app
+                        .try_state::<AppState>()
+                        .and_then(|s: State<'_, AppState>| {
+                            s.session
+                                .lock()
+                                .ok()
+                                .map(|g| matches!(*g, SessionState::Recording(_)))
+                        })
+                        .unwrap_or(false);
+                    if !still {
+                        return;
+                    }
                     continue;
                 }
                 if vad.is_speech(&frame) {
