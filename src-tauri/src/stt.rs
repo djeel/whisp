@@ -143,6 +143,12 @@ fn daemon_running_model() -> Option<String> {
     String::from_utf8(resp).ok()
 }
 
+/// Statut STT sans spawn : `Some(modèle)` si un daemon répond, sinon `None`.
+/// Pour le rapport santé (jamais de démarrage implicite ici).
+pub fn daemon_status() -> Option<String> {
+    daemon_running_model()
+}
+
 /// Singleton: the spawned daemon child (if WE started it) plus its model.
 /// Guards concurrent first-use spawns (`do_finish` and history reprocess
 /// can transcribe at the same time).

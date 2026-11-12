@@ -1672,14 +1672,7 @@ fn install_agent_hooks(agent: String) -> Result<String, String> {
     Ok(msg)
 }
 
-/// Teste la connexion au serveur Ollama (Settings → Modèles locaux).
-#[tauri::command]
-fn test_ollama(url: Option<String>) -> Result<String, String> {
-    let base = url
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(config::ollama_url)
-        .trim_end_matches('/')
-        .to_string();
+fn ollama_probe(base: &str) -> Result<usize, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
@@ -1692,11 +1685,78 @@ fn test_ollama(url: Option<String>) -> Result<String, String> {
         .map_err(|e| format!("ollama status: {e}"))?
         .json()
         .map_err(|e| format!("ollama decode: {e}"))?;
-    let n = tags
+    Ok(tags
         .get("models")
         .and_then(|m| m.as_array())
         .map(|a| a.len())
-        .unwrap_or(0);
+        .unwrap_or(0))
+}
+
+/// Rapport santé exportable (Settings → Santé, socket `health`, MCP
+/// `whisp_health`). Zéro secret : clés réduites à des booléens de présence,
+/// URL Ollama locale sans identifiants.
+#[tauri::command]
+fn health_report(app: tauri::AppHandle) -> serde_json::Value {
+    let state = app.try_state::<AppState>();
+    let mode_id = state
+        .as_ref()
+        .map(|s| current_mode_id(s))
+        .unwrap_or_else(|| "message".to_string());
+    let last_run = state.as_ref().and_then(|s| {
+        s.last_run
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    });
+    let cfg = config::load();
+    let ollama_base = cfg
+        .ollama_url
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(config::ollama_url);
+    let (ollama_ok, ollama_models) = match ollama_probe(ollama_base.trim_end_matches('/')) {
+        Ok(n) => (true, n),
+        Err(_) => (false, 0),
+    };
+    let venv_py = dirs::home_dir()
+        .map(|h| h.join(".local/share/whisp/fw/bin/python").exists())
+        .unwrap_or(false);
+    let entries = history::stats().map(|s| s.total_entries).unwrap_or(0);
+    serde_json::json!({
+        "app": { "version": env!("CARGO_PKG_VERSION"), "mode": mode_id },
+        "stt": {
+            "daemon_model": stt::daemon_status(),
+            "python3": have_bin("python3"),
+            "venv_python": venv_py,
+            "fish_configured": stt::fish_api_key().is_some(),
+        },
+        "ollama": { "url": ollama_base, "reachable": ollama_ok, "models": ollama_models },
+        "claude": {
+            "connected": llm::claude_oauth_status(),
+            "has_style": cfg.claude_style.map(|s| !s.trim().is_empty()).unwrap_or(false),
+        },
+        "last_run": last_run,
+        "history": { "entries": entries },
+        "config": {
+            "auto_paste": cfg.auto_paste.unwrap_or(true),
+            "realtime_preview": cfg.realtime_preview.unwrap_or(true),
+            "auto_stop": cfg.auto_stop.unwrap_or(true),
+            "auto_stop_silence_ms": config::auto_stop_silence(),
+            "stt_model": config::stt_model_name(),
+            "language": config::dictation_language(),
+        },
+    })
+}
+
+/// Teste la connexion au serveur Ollama (Settings → Modèles locaux).
+#[tauri::command]
+fn test_ollama(url: Option<String>) -> Result<String, String> {
+    let base = url
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(config::ollama_url)
+        .trim_end_matches('/')
+        .to_string();
+    let n = ollama_probe(&base)?;
     Ok(format!("Ollama OK ({base}, {n} modèle(s))"))
 }
 
@@ -2350,6 +2410,8 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
             Ok(chars) => ok(serde_json::json!({ "undone_chars": chars })),
             Err(e) => fail(e),
         },
+        // Rapport santé (zéro secret : booléens de présence uniquement).
+        "health" => ok(health_report(app.clone())),
         "" => fail("missing cmd".to_string()),
         other => fail(format!("unknown cmd '{other}'")),
     }
@@ -2411,6 +2473,7 @@ pub fn run() {
             delete_history,
             repaste,
             undo_paste,
+            health_report,
             get_config,
             set_config,
             claude_status,
