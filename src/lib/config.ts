@@ -51,6 +51,8 @@ export interface BackendConfig {
   agentCommand?: string;
   autoPaste?: boolean;
   realtimePreview?: boolean;
+  autoStop?: boolean;
+  autoStopSilenceMs?: number;
   activePills?: string[];
   ollamaUrl?: string;
   ollamaModel?: string;
@@ -80,6 +82,9 @@ export function parseBackendConfig(raw: unknown): BackendConfig {
   if (s("agentCommand")) out.agentCommand = s("agentCommand");
   if (b("autoPaste") !== undefined) out.autoPaste = b("autoPaste");
   if (b("realtimePreview") !== undefined) out.realtimePreview = b("realtimePreview");
+  if (b("autoStop") !== undefined) out.autoStop = b("autoStop");
+  if (typeof r.autoStopSilenceMs === "number" && r.autoStopSilenceMs >= 500 && r.autoStopSilenceMs <= 5000)
+    out.autoStopSilenceMs = r.autoStopSilenceMs;
   if (arr("activePills")) out.activePills = migrateActivePills(r.activePills) ?? arr("activePills");
   if (s("ollamaUrl")) out.ollamaUrl = s("ollamaUrl");
   if (s("ollamaModel")) out.ollamaModel = s("ollamaModel");

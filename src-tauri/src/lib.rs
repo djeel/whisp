@@ -71,6 +71,7 @@ fn do_start(app: &tauri::AppHandle) -> Result<(), String> {
             show_recorder(app);
             emit_state(app, RecStatus::Recording, None);
             spawn_partial_thread(app.clone());
+            spawn_vad_watchdog(app.clone());
             // Warm the STT daemon now so live previews work from the first
             // seconds (and the final transcribe pays no model-load cost).
             let model = config::stt_model_name();
@@ -145,6 +146,69 @@ fn stable_prefix(old: &str, new: &str) -> String {
     }
     let take = (common + 8).min(new_w.len());
     new_w[..take].join(" ")
+}
+
+/// Pure decision for VAD auto-stop (unit-testable, no time inside).
+/// `heard_speech` = parole détectée au moins une fois depuis le début ;
+/// `silent_ms` = silence continu courant ; `total_ms` = durée totale ;
+/// `threshold_ms` = config `auto_stop_silence`.
+fn should_auto_stop(heard_speech: bool, silent_ms: u64, total_ms: u64, threshold_ms: u64) -> bool {
+    heard_speech && total_ms >= 1500 && silent_ms >= threshold_ms
+}
+
+/// Watchdog stop-auto : échantillonne les 200 dernières ms du ring toutes
+/// les 200 ms via le détecteur d'énergie. Quand de la parole a été entendue
+/// puis que le silence dure `auto_stop_silence`, émet `whisp://auto-stop`
+/// (la popup appelle `stop_recording`, même chemin que le raccourci).
+/// Une seule émission : le thread meurt après. Inactif si `auto_stop` off.
+fn spawn_vad_watchdog(app: tauri::AppHandle) {
+    if !config::auto_stop() {
+        return;
+    }
+    let threshold = config::auto_stop_silence();
+    std::thread::Builder::new()
+        .name("whisp-vad-watchdog".to_string())
+        .spawn(move || {
+            let mut vad = audio::Vad::default();
+            let mut heard_speech = false;
+            let mut silent_ms: u64 = 0;
+            let mut total_ms: u64 = 0;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                total_ms += 200;
+                let recording = matches!(
+                    app.try_state::<AppState>()
+                        .map(|s: State<'_, AppState>| s.session_snapshot()),
+                    Some(SessionState::Recording(_))
+                );
+                if !recording {
+                    return;
+                }
+                let frame = app
+                    .try_state::<AppState>()
+                    .and_then(|s: State<'_, AppState>| {
+                        s.session
+                            .lock()
+                            .ok()
+                            .and_then(|g| g.handle().map(|h| h.snapshot_last(3200)))
+                    })
+                    .unwrap_or_default();
+                if frame.is_empty() {
+                    continue;
+                }
+                if vad.is_speech(&frame) {
+                    heard_speech = true;
+                    silent_ms = 0;
+                } else {
+                    silent_ms += 200;
+                }
+                if should_auto_stop(heard_speech, silent_ms, total_ms, threshold) {
+                    let _ = app.emit("whisp://auto-stop", serde_json::json!({}));
+                    return;
+                }
+            }
+        })
+        .ok();
 }
 
 fn do_cancel(app: &tauri::AppHandle) -> Result<(), String> {
@@ -1233,6 +1297,8 @@ fn set_config(
     hotkey_toggle: Option<String>,
     hotkey_push_to_talk: Option<String>,
     hotkey_cycle_mode: Option<String>,
+    auto_stop: Option<bool>,
+    auto_stop_silence_ms: Option<u64>,
 ) -> Result<(), String> {
     config::set(
         popup_pos,
@@ -1264,6 +1330,8 @@ fn set_config(
         hotkey_toggle,
         hotkey_push_to_talk,
         hotkey_cycle_mode,
+        auto_stop,
+        auto_stop_silence_ms,
     )
 }
 
@@ -2260,6 +2328,24 @@ pub fn run() {
                 stt::stop_stt_daemon();
             }
         });
+}
+
+#[cfg(test)]
+mod vad_tests {
+    use super::*;
+
+    #[test]
+    fn auto_stop_needs_speech_then_silence() {
+        // Pas de parole entendue : jamais de stop (bruit de fond seul).
+        assert!(!should_auto_stop(false, 5000, 10000, 1200));
+        // Parole + silence sous le seuil : on attend.
+        assert!(!should_auto_stop(true, 1000, 5000, 1200));
+        // Enregistrement trop court (< 1,5 s) : pas de stop immédiat.
+        assert!(!should_auto_stop(true, 1200, 1000, 1200));
+        // Cas nominal : parole puis silence >= seuil.
+        assert!(should_auto_stop(true, 1200, 5000, 1200));
+        assert!(should_auto_stop(true, 3000, 8000, 1200));
+    }
 }
 
 #[cfg(test)]

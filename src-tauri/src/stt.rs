@@ -489,7 +489,7 @@ fn secret_tool_get() -> Option<String> {
 fn secret_tool_set(key: &str) -> bool {
     use std::io::Write;
     // secret-tool lit le secret sur stdin.
-    let mut child = std::process::Command::new("timeout")
+    let child = std::process::Command::new("timeout")
         .args([
             "3",
             "secret-tool",

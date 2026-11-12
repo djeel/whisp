@@ -443,6 +443,11 @@
                 : null;
           if (t && t.trim()) partial = t.trim();
         });
+        await sub("whisp://auto-stop", () => {
+          // Stop-auto VAD : même chemin que le raccourci, avec feedback.
+          message = "Silence détecté — dictée terminée.";
+          stop();
+        });
         await sub("whisp://agent-event", (p) => {
           const q = p as Record<string, unknown> | null;
           if (!q || typeof q !== "object") return;

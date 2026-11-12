@@ -139,6 +139,7 @@ export class SettingsStore {
   vocabMsg = $state<string | null>(null);
   autoPaste = $state<boolean>(readStored("whisp:auto-paste") !== "0");
   realtime = $state<boolean>(readStored("whisp:realtime") !== "0");
+  autoStop = $state<boolean>(readStored("whisp:auto-stop") !== "0");
   activePills = $state<string[]>(readJSON<string[]>("whisp:active-pills", ["dictee", "agent", "agents"]));
   pillDefs = PILL_DEFS;
   agentHooks = $state<AgentHookEntry[] | null>(null);
@@ -234,6 +235,10 @@ export class SettingsStore {
     if (typeof cfg?.realtimePreview === "boolean") {
       this.realtime = cfg.realtimePreview as boolean;
       writeStored("whisp:realtime", this.realtime ? "1" : "0");
+    }
+    if (typeof cfg?.autoStop === "boolean") {
+      this.autoStop = cfg.autoStop as boolean;
+      writeStored("whisp:auto-stop", this.autoStop ? "1" : "0");
     }
     if (typeof cfg?.agent === "string" && cfg.agent) {
       this.agentName = cfg.agent as string;
@@ -528,6 +533,12 @@ export class SettingsStore {
     this.realtime = next;
     writeStored("whisp:realtime", next ? "1" : "0");
     this.queueConfig({ realtimePreview: next });
+  }
+
+  pushAutoStop(next: boolean): void {
+    this.autoStop = next;
+    writeStored("whisp:auto-stop", next ? "1" : "0");
+    this.queueConfig({ autoStop: next });
   }
 
   pushInputDevice(next: string): void {
