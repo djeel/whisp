@@ -23,6 +23,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - name: frontend dist (requis par generate_context! au build)
+        run: bun install --frozen-lockfile && bun run build
+      - name: smoke MCP (sans app)
+        run: python3 tests/mcp_smoke.py
       - name: fmt check
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
       - name: clippy
