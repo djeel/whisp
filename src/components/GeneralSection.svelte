@@ -70,6 +70,14 @@
     />
   </div>
   <div class="check-row">
+    <span id="cfg-autostop">Stop auto sur silence</span>
+    <Toggle
+      checked={store.autoStop}
+      onchange={(v) => store.pushAutoStop(v)}
+      label="Terminer la dictée après ~1 s de silence (détection vocale)"
+    />
+  </div>
+  <div class="check-row">
     <span>Langue de dictée</span>
     <Dropdown options={LANG_OPTS} bind:value={store.dictLang} label="Langue de dictée" onselect={(v) => store.pushDictLang(v)} />
   </div>

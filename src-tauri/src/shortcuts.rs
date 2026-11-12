@@ -149,7 +149,8 @@ pub fn set_hotkey(app: tauri::AppHandle, id: String, keys: String) -> Result<Str
     };
     crate::config::set(
         None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None, None, None, None, nt, np, nc,
+        None, None, None, None, None, None, None, None, None, None, None, nt, np, nc, None,
+        None, // stop auto : inchangé par un rebind de raccourci
     )?;
     Ok(format!("{} → {}", crate::hotkeys::pretty(&raw), raw))
 }
@@ -206,6 +207,8 @@ pub fn reset_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
         Some(crate::hotkeys::DEFAULT_TOGGLE.to_string()),
         Some(crate::hotkeys::DEFAULT_PUSH_TO_TALK.to_string()),
         Some(crate::hotkeys::DEFAULT_CYCLE_MODE.to_string()),
+        Some(true), // stop auto : défaut ON à la réinitialisation
+        Some(1200), // silence : défaut 1200 ms
     )?;
     crate::hotkeys::register_all(&app)?;
     Ok(format!(

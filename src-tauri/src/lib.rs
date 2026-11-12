@@ -26,7 +26,10 @@ mod voice;
 use std::time::Duration;
 
 use crate::llm::Llm as _;
-use crate::state::{current_mode_id, emit_mode_changed, emit_state, hide_recorder, show_recorder};
+use crate::state::{
+    current_mode_id, emit_mode_changed, emit_state, hide_recorder, show_recorder, LastPaste,
+    LastRun,
+};
 use crate::stt::Stt as _;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
@@ -71,6 +74,7 @@ fn do_start(app: &tauri::AppHandle) -> Result<(), String> {
             show_recorder(app);
             emit_state(app, RecStatus::Recording, None);
             spawn_partial_thread(app.clone());
+            spawn_vad_watchdog(app.clone());
             // Warm the STT daemon now so live previews work from the first
             // seconds (and the final transcribe pays no model-load cost).
             let model = config::stt_model_name();
@@ -145,6 +149,75 @@ fn stable_prefix(old: &str, new: &str) -> String {
     }
     let take = (common + 8).min(new_w.len());
     new_w[..take].join(" ")
+}
+
+/// Pure decision for VAD auto-stop (unit-testable, no time inside).
+/// `heard_speech` = parole détectée au moins une fois depuis le début ;
+/// `silent_ms` = silence continu courant ; `total_ms` = durée totale ;
+/// `threshold_ms` = config `auto_stop_silence`.
+fn should_auto_stop(heard_speech: bool, silent_ms: u64, total_ms: u64, threshold_ms: u64) -> bool {
+    heard_speech && total_ms >= 1500 && silent_ms >= threshold_ms
+}
+
+/// Watchdog stop-auto : échantillonne les 200 dernières ms du ring toutes
+/// les 200 ms via le détecteur d'énergie. Quand de la parole a été entendue
+/// puis que le silence dure `auto_stop_silence`, émet `whisp://auto-stop`
+/// (la popup appelle `stop_recording`, même chemin que le raccourci).
+/// Une seule émission : le thread meurt après. Inactif si `auto_stop` off.
+fn spawn_vad_watchdog(app: tauri::AppHandle) {
+    if !config::auto_stop() {
+        return;
+    }
+    let threshold = config::auto_stop_silence();
+    std::thread::Builder::new()
+        .name("whisp-vad-watchdog".to_string())
+        .spawn(move || {
+            let mut vad = audio::Vad::default_16k();
+            let mut heard_speech = false;
+            let mut silent_ms: u64 = 0;
+            let mut total_ms: u64 = 0;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                total_ms += 200;
+                let frame = app
+                    .try_state::<AppState>()
+                    .and_then(|s: State<'_, AppState>| {
+                        s.session.lock().ok().and_then(|g| match &*g {
+                            SessionState::Recording(h) => Some(h.snapshot_last(3200)),
+                            _ => None,
+                        })
+                    })
+                    .unwrap_or_default();
+                // Fin d'enregistrement (stop manuel, cancel, erreur) : le
+                // watchdog s'éteint — jamais de stop fantôme après coup.
+                if frame.is_empty() {
+                    let still = app
+                        .try_state::<AppState>()
+                        .and_then(|s: State<'_, AppState>| {
+                            s.session
+                                .lock()
+                                .ok()
+                                .map(|g| matches!(*g, SessionState::Recording(_)))
+                        })
+                        .unwrap_or(false);
+                    if !still {
+                        return;
+                    }
+                    continue;
+                }
+                if vad.is_speech(&frame) {
+                    heard_speech = true;
+                    silent_ms = 0;
+                } else {
+                    silent_ms += 200;
+                }
+                if should_auto_stop(heard_speech, silent_ms, total_ms, threshold) {
+                    let _ = app.emit("whisp://auto-stop", serde_json::json!({}));
+                    return;
+                }
+            }
+        })
+        .ok();
 }
 
 fn do_cancel(app: &tauri::AppHandle) -> Result<(), String> {
@@ -357,7 +430,7 @@ async fn finish_from_handle(
         // popup a le focus, wtype colle dedans : on refocus d'abord la cible
         // mémorisée ? Non — Hyprland garde le focus précédent quand la popup
         // est `focus: false`. Le vrai fix est côté fenêtre : pas de focus.
-        paste_text(&text_final);
+        paste_text(&app, &text_final);
         false
     } else {
         // Collage auto désactivé : texte en presse-papiers + historique uniquement.
@@ -500,6 +573,9 @@ fn tmux_session_active() -> bool {
 /// (`omp -p …`) is never waited on (fire-and-forget into the session
 /// shell), so no long timeout is needed anywhere here.
 const TMUX_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Délai max pour un collage/annulation de collage (wtype/ydotool/xdotool).
+const PASTE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// True when the tmux *server* answers for the session, not just that the
 /// session name exists. `has-session` can succeed while the server is
@@ -1001,10 +1077,18 @@ fn copy_to_clipboard(text: &str) -> bool {
         .is_ok()
 }
 
-fn paste_text(text: &str) {
+fn paste_text(app: &tauri::AppHandle, text: &str) {
     if text.trim().is_empty() {
         return;
     }
+    // Presse-papiers d'avant, capturé AVANT écrasement (restauré par undo).
+    let before = match run_timed_out(
+        &["wl-paste", "--type", "text/plain", "--no-newline"],
+        Duration::from_secs(2),
+    ) {
+        Ok(s) if !s.is_empty() => Some(s),
+        _ => None,
+    };
     let wl_ok = copy_to_clipboard(text);
     // Le hide a déjà rendu le focus à l'app cible ; laisser le compositor
     // finir avant d'envoyer Ctrl+V (sinon la frappe part dans le vide).
@@ -1030,7 +1114,94 @@ fn paste_text(text: &str) {
         // Plus de collage silencieux : même presse-papiers OK, le toggle est ON.
         eprintln!("[whisp] paste failed (wtype/ydotool/xdotool): clipboard_ok={wl_ok}");
     }
+    // Mémorise le collage pour `undo_paste` (+ presse-papiers d'avant).
+    let pasted_chars = text.chars().count();
+    if pasted_chars > 0 {
+        if let Some(state) = app.try_state::<AppState>() {
+            *state.last_paste.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastPaste {
+                pasted_chars,
+                clipboard_before: before,
+            });
+        }
+    }
     // Text stays in history either way (best effort).
+}
+
+// ---------------------------------------------------------------------------
+// Re-paste + annulation du collage (chantier "repaste & undo")
+// ---------------------------------------------------------------------------
+
+/// Envoie `n` Retours arrière (plafonné) pour effacer le dernier collage.
+fn press_backspace(n: usize) -> Result<(), String> {
+    let n = n.min(5000);
+    if n == 0 {
+        return Ok(());
+    }
+    // wtype accepte une séquence de `-k` en un seul appel.
+    let mut wtype_argv: Vec<String> = Vec::with_capacity(n * 2);
+    for _ in 0..n {
+        wtype_argv.push("-k".to_string());
+        wtype_argv.push("BackSpace".to_string());
+    }
+    let mut wtype_refs: Vec<&str> = vec!["wtype"];
+    wtype_refs.extend(wtype_argv.iter().map(|s| s.as_str()));
+    if run_timed(&wtype_refs, PASTE_TIMEOUT).is_ok() {
+        return Ok(());
+    }
+    let mut y_argv: Vec<String> = Vec::with_capacity(n * 2);
+    for _ in 0..n {
+        y_argv.push("14:1".to_string());
+        y_argv.push("14:0".to_string());
+    }
+    let mut y_refs: Vec<&str> = vec!["ydotool", "key"];
+    y_refs.extend(y_argv.iter().map(|s| s.as_str()));
+    if run_timed(&y_refs, PASTE_TIMEOUT).is_ok() {
+        return Ok(());
+    }
+    let mut x_argv: Vec<&str> = Vec::with_capacity(n + 2);
+    x_argv.push("xdotool");
+    x_argv.push("key");
+    for _ in 0..n {
+        x_argv.push("BackSpace");
+    }
+    run_timed(&x_argv, PASTE_TIMEOUT)
+}
+
+/// Cœur de `undo_paste` (commande Tauri + socket) : efface le dernier
+/// collage et restaure le presse-papiers d'avant. Consomme le slot.
+fn undo_paste_inner(app: &tauri::AppHandle) -> Result<usize, String> {
+    let slot = app
+        .try_state::<AppState>()
+        .ok_or_else(|| "état indisponible".to_string())?
+        .last_paste
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    let slot = slot.ok_or_else(|| "rien à annuler".to_string())?;
+    press_backspace(slot.pasted_chars)?;
+    if let Some(before) = slot.clipboard_before {
+        copy_to_clipboard(&before);
+    }
+    Ok(slot.pasted_chars)
+}
+
+#[tauri::command]
+fn undo_paste(app: tauri::AppHandle) -> Result<String, String> {
+    undo_paste_inner(&app).map(|n| format!("collage annulé ({n} car.)"))
+}
+
+/// Cœur de `repaste` (commande Tauri + socket) : re-colle une entrée
+/// d'historique au curseur. Met à jour le slot undo via `paste_text`.
+fn repaste_inner(app: &tauri::AppHandle, id: &str) -> Result<usize, String> {
+    let entry = history::get(id)?.ok_or_else(|| format!("entrée '{id}' introuvable"))?;
+    let chars = entry.text_final.chars().count();
+    paste_text(app, &entry.text_final);
+    Ok(chars)
+}
+
+#[tauri::command]
+fn repaste(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    repaste_inner(&app, &id).map(|n| format!("re-collé ({n} car.)"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1121,7 +1292,20 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<StopResult, String> {
         .unwrap_or_else(|| "message".to_string());
     let mode = modes::get_mode(&mode_id)
         .unwrap_or_else(|| modes::builtin_modes().into_iter().next().unwrap());
-    do_finish(app, mode).await
+    let t0 = std::time::Instant::now();
+    let out = do_finish(app.clone(), mode.clone()).await;
+    // Rapport santé (item 4) : durée du dernier pipeline, même en échec.
+    if let Some(state) = app.try_state::<AppState>() {
+        *state.last_run.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastRun {
+            ms: t0.elapsed().as_millis() as u64,
+            at_unix: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            mode: mode.id.clone(),
+        });
+    }
+    out
 }
 
 #[tauri::command]
@@ -1233,6 +1417,8 @@ fn set_config(
     hotkey_toggle: Option<String>,
     hotkey_push_to_talk: Option<String>,
     hotkey_cycle_mode: Option<String>,
+    auto_stop: Option<bool>,
+    auto_stop_silence_ms: Option<u64>,
 ) -> Result<(), String> {
     config::set(
         popup_pos,
@@ -1264,6 +1450,8 @@ fn set_config(
         hotkey_toggle,
         hotkey_push_to_talk,
         hotkey_cycle_mode,
+        auto_stop,
+        auto_stop_silence_ms,
     )
 }
 
@@ -1496,14 +1684,7 @@ fn install_agent_hooks(agent: String) -> Result<String, String> {
     Ok(msg)
 }
 
-/// Teste la connexion au serveur Ollama (Settings → Modèles locaux).
-#[tauri::command]
-fn test_ollama(url: Option<String>) -> Result<String, String> {
-    let base = url
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(config::ollama_url)
-        .trim_end_matches('/')
-        .to_string();
+fn ollama_probe(base: &str) -> Result<usize, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
@@ -1516,11 +1697,75 @@ fn test_ollama(url: Option<String>) -> Result<String, String> {
         .map_err(|e| format!("ollama status: {e}"))?
         .json()
         .map_err(|e| format!("ollama decode: {e}"))?;
-    let n = tags
+    Ok(tags
         .get("models")
         .and_then(|m| m.as_array())
         .map(|a| a.len())
-        .unwrap_or(0);
+        .unwrap_or(0))
+}
+
+/// Rapport santé exportable (Settings → Santé, socket `health`, MCP
+/// `whisp_health`). Zéro secret : clés réduites à des booléens de présence,
+/// URL Ollama locale sans identifiants.
+#[tauri::command]
+fn health_report(app: tauri::AppHandle) -> serde_json::Value {
+    let state = app.try_state::<AppState>();
+    let mode_id = state
+        .as_ref()
+        .map(|s| current_mode_id(s))
+        .unwrap_or_else(|| "message".to_string());
+    let last_run = state
+        .as_ref()
+        .and_then(|s| s.last_run.lock().unwrap_or_else(|e| e.into_inner()).clone());
+    let cfg = config::load();
+    let ollama_base = cfg
+        .ollama_url
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(config::ollama_url);
+    let (ollama_ok, ollama_models) = match ollama_probe(ollama_base.trim_end_matches('/')) {
+        Ok(n) => (true, n),
+        Err(_) => (false, 0),
+    };
+    let venv_py = dirs::home_dir()
+        .map(|h| h.join(".local/share/whisp/fw/bin/python").exists())
+        .unwrap_or(false);
+    let entries = history::stats().map(|s| s.total_entries).unwrap_or(0);
+    serde_json::json!({
+        "app": { "version": env!("CARGO_PKG_VERSION"), "mode": mode_id },
+        "stt": {
+            "daemon_model": stt::daemon_status(),
+            "python3": have_bin("python3"),
+            "venv_python": venv_py,
+            "fish_configured": stt::fish_api_key().is_some(),
+        },
+        "ollama": { "url": ollama_base, "reachable": ollama_ok, "models": ollama_models },
+        "claude": {
+            "connected": llm::claude_oauth_status(),
+            "has_style": cfg.claude_style.map(|s| !s.trim().is_empty()).unwrap_or(false),
+        },
+        "last_run": last_run,
+        "history": { "entries": entries },
+        "config": {
+            "auto_paste": cfg.auto_paste.unwrap_or(true),
+            "realtime_preview": cfg.realtime_preview.unwrap_or(true),
+            "auto_stop": cfg.auto_stop.unwrap_or(true),
+            "auto_stop_silence_ms": config::auto_stop_silence(),
+            "stt_model": config::stt_model_name(),
+            "language": config::dictation_language(),
+        },
+    })
+}
+
+/// Teste la connexion au serveur Ollama (Settings → Modèles locaux).
+#[tauri::command]
+fn test_ollama(url: Option<String>) -> Result<String, String> {
+    let base = url
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(config::ollama_url)
+        .trim_end_matches('/')
+        .to_string();
+    let n = ollama_probe(&base)?;
     Ok(format!("Ollama OK ({base}, {n} modèle(s))"))
 }
 
@@ -2108,6 +2353,8 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 str_field("hotkeyToggle"),
                 str_field("hotkeyPushToTalk"),
                 str_field("hotkeyCycleMode"),
+                v.get("autoStop").and_then(|x| x.as_bool()),
+                v.get("autoStopSilenceMs").and_then(|x| x.as_u64()),
             ) {
                 Ok(()) => ok(serde_json::json!(config::load())),
                 Err(e) => fail(e),
@@ -2155,6 +2402,25 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
                 Err(e) => fail(e),
             }
         }
+        // Re-colle une entrée d'historique au curseur (met à jour le slot undo).
+        "repaste" => {
+            let id = v
+                .get("id")
+                .and_then(|i| i.as_str())
+                .unwrap_or("")
+                .to_string();
+            match repaste_inner(&app, &id) {
+                Ok(chars) => ok(serde_json::json!({ "repasted_chars": chars })),
+                Err(e) => fail(e),
+            }
+        }
+        // Annule le dernier collage (efface + restaure le presse-papiers).
+        "undo_paste" => match undo_paste_inner(app) {
+            Ok(chars) => ok(serde_json::json!({ "undone_chars": chars })),
+            Err(e) => fail(e),
+        },
+        // Rapport santé (zéro secret : booléens de présence uniquement).
+        "health" => ok(health_report(app.clone())),
         "" => fail("missing cmd".to_string()),
         other => fail(format!("unknown cmd '{other}'")),
     }
@@ -2214,6 +2480,9 @@ pub fn run() {
             delete_mode,
             list_history,
             delete_history,
+            repaste,
+            undo_paste,
+            health_report,
             get_config,
             set_config,
             claude_status,
@@ -2260,6 +2529,24 @@ pub fn run() {
                 stt::stop_stt_daemon();
             }
         });
+}
+
+#[cfg(test)]
+mod vad_tests {
+    use super::*;
+
+    #[test]
+    fn auto_stop_needs_speech_then_silence() {
+        // Pas de parole entendue : jamais de stop (bruit de fond seul).
+        assert!(!should_auto_stop(false, 5000, 10000, 1200));
+        // Parole + silence sous le seuil : on attend.
+        assert!(!should_auto_stop(true, 1000, 5000, 1200));
+        // Enregistrement trop court (< 1,5 s) : pas de stop immédiat.
+        assert!(!should_auto_stop(true, 1200, 1000, 1200));
+        // Cas nominal : parole puis silence >= seuil.
+        assert!(should_auto_stop(true, 1200, 5000, 1200));
+        assert!(should_auto_stop(true, 3000, 8000, 1200));
+    }
 }
 
 #[cfg(test)]

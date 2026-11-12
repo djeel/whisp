@@ -1,5 +1,13 @@
  # Changelog
 
+## Non publié — mission « all-six » (branche `review/all-six`)
+
+### Nouveau
+- Stop auto sur silence (VAD, ~1,2 s après la parole, réglable 500–5000 ms) + fix `clippy::unused_mut`.
+- Re-paste depuis l'historique + annulation du collage (Backspace + restauration du presse-papiers d'avant) ; dispo UI, socket et MCP (`whisp_repaste`, `whisp_undo_paste`).
+- Rapport Santé exportable (daemon STT sans spawn, Ollama, Claude, dernière dictée, subset config — zéro secret) : commande `health_report`, socket `health`, MCP `whisp_health`, panneau Santé avec export JSON.
+- Historique chiffré au repos (XChaCha20-Poly1305, clé machine SHA256(machine-id), migration douce du legacy en clair) ; recherche et stats déchiffrent côté Rust.
+
 ## v0.1.4 — Design Herdr + autostart réel
 
 ### Nouveau

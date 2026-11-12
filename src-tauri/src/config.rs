@@ -49,6 +49,12 @@ pub struct AppConfig {
     pub realtime_preview: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_paste: Option<bool>,
+    /// Stop automatique sur silence (VAD, voix uniquement) ; on par défaut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_stop: Option<bool>,
+    /// Durée de silence (ms) avant stop auto ; défaut 1200, borné 500..5000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_stop_silence_ms: Option<u64>,
     /// Pills actives (Settings → Pills) : ids parmi `dictee`, `agent`, `agents`, `chat`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_pills: Option<Vec<String>>,
@@ -230,6 +236,8 @@ pub fn set(
     hotkey_toggle: Option<String>,
     hotkey_push_to_talk: Option<String>,
     hotkey_cycle_mode: Option<String>,
+    auto_stop: Option<bool>,
+    auto_stop_silence_ms: Option<u64>,
 ) -> Result<(), String> {
     if let Some(m) = &stt_model {
         if !matches!(m.as_str(), "small" | "medium" | "base") {
@@ -296,6 +304,15 @@ pub fn set(
     }
     if auto_paste.is_some() {
         cfg.auto_paste = auto_paste;
+    }
+    if auto_stop.is_some() {
+        cfg.auto_stop = auto_stop;
+    }
+    if let Some(ms) = auto_stop_silence_ms {
+        if !(500..=5000).contains(&ms) {
+            return Err(format!("unknown auto_stop_silence_ms '{ms}' (500..5000)"));
+        }
+        cfg.auto_stop_silence_ms = Some(ms);
     }
     if active_pills.is_some() {
         cfg.active_pills = active_pills;
@@ -401,6 +418,19 @@ pub fn popup_xy() -> Option<String> {
 /// Live partial transcription during recording; on by default.
 pub fn realtime_preview() -> bool {
     load().realtime_preview.unwrap_or(true)
+}
+
+/// Stop automatique sur silence (VAD) ; on par défaut.
+pub fn auto_stop() -> bool {
+    load().auto_stop.unwrap_or(true)
+}
+
+/// Durée de silence (ms) avant stop auto ; défaut 1200, borné 500..5000.
+pub fn auto_stop_silence() -> u64 {
+    load()
+        .auto_stop_silence_ms
+        .filter(|ms| (500..=5000).contains(ms))
+        .unwrap_or(1200)
 }
 
 /// Agent id; default `omp`.
@@ -562,12 +592,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// `set` prend 26 params positionnels (même ordre que la struct).
+    /// `set` prend 31 params positionnels (même ordre que la struct).
     /// Helpers : un seul champ `Some`, le reste `None` — comptage vérifiable
-    /// ligne à ligne (12 + 12 + 2).
+    /// ligne à ligne (1 + 30).
     fn set_popup_pos(v: String) -> Result<(), String> {
         set(
             Some(v),
+            None,
+            None,
             None,
             None,
             None,
@@ -629,6 +661,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
     }
     fn set_language_fr() -> Result<(), String> {
@@ -637,6 +671,8 @@ mod tests {
             None,
             None,
             Some("fr".to_string()),
+            None,
+            None,
             None,
             None,
             None,
@@ -695,6 +731,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
     }
     fn set_accent(source: Option<&str>, custom: Option<&str>) -> Result<(), String> {
@@ -725,6 +763,8 @@ mod tests {
             None,
             source.map(|s| s.to_string()),
             custom.map(|s| s.to_string()),
+            None,
+            None,
             None,
             None,
             None,
@@ -814,6 +854,120 @@ mod tests {
                 "agent_cwd: {:?}",
                 cfg.agent_cwd
             );
+        });
+    }
+
+    #[test]
+    fn auto_stop_validation_and_defaults() {
+        // Bornes rejetées avant tout IO : aucun fichier touché.
+        let bad_lo = set(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            Some(499),
+        );
+        assert!(bad_lo.is_err());
+        let bad_hi = set(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            Some(5001),
+        );
+        assert!(bad_hi.is_err());
+        with_isolated_config(|| {
+            // Défauts : on, 1200 ms.
+            assert!(auto_stop());
+            assert_eq!(auto_stop_silence(), 1200);
+            let ok = set(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                Some(2000),
+            );
+            assert!(ok.is_ok());
+            assert!(!auto_stop());
+            assert_eq!(auto_stop_silence(), 2000);
         });
     }
 }

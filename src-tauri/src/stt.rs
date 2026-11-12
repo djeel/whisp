@@ -143,6 +143,12 @@ fn daemon_running_model() -> Option<String> {
     String::from_utf8(resp).ok()
 }
 
+/// Statut STT sans spawn : `Some(modèle)` si un daemon répond, sinon `None`.
+/// Pour le rapport santé (jamais de démarrage implicite ici).
+pub fn daemon_status() -> Option<String> {
+    daemon_running_model()
+}
+
 /// Singleton: the spawned daemon child (if WE started it) plus its model.
 /// Guards concurrent first-use spawns (`do_finish` and history reprocess
 /// can transcribe at the same time).
@@ -489,7 +495,7 @@ fn secret_tool_get() -> Option<String> {
 fn secret_tool_set(key: &str) -> bool {
     use std::io::Write;
     // secret-tool lit le secret sur stdin.
-    let mut child = std::process::Command::new("timeout")
+    let child = std::process::Command::new("timeout")
         .args([
             "3",
             "secret-tool",

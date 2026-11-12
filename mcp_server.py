@@ -15,6 +15,9 @@ Tools:
   whisp_list_mics   capture devices visible to the app
   whisp_get_config  app config (stt model, language, mic, theme...)
   whisp_history     recent dictations (transcript + refined)
+  whisp_repaste     re-paste a history entry at the cursor (by id)
+  whisp_undo_paste  undo the last paste (erase + restore clipboard)
+  whisp_health      exportable health report (zero secrets, presence only)
 
 Install (Claude Code / omp): copy `.mcp.json.example` to `.mcp.json` and adjust the path,
   or add manually: {"command": "~/.local/bin/whisp-mcp"}
@@ -81,8 +84,14 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "whisp_history", "description": "Recent dictations with raw transcript + refined text (opt-in, contenu sensible).",
      "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "default": 5}}}},
-    {"name": "whisp_set_config", "description": "Update app config. Whitelist sûre : popupPos, sttModel, theme, language, inputDevice, agent, agentContext, realtimePreview. agentCommand/agentCwd = UI uniquement.",
-     "inputSchema": {"type": "object", "properties": {"popupPos": {"type": "string"}, "sttModel": {"type": "string"}, "theme": {"type": "string"}, "language": {"type": "string"}, "inputDevice": {"type": "string"}, "agent": {"type": "string"}, "agentContext": {"type": "boolean"}, "realtimePreview": {"type": "boolean"}}}},
+    {"name": "whisp_repaste", "description": "Re-colle une entrée d'historique au curseur (par id).",
+     "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
+    {"name": "whisp_undo_paste", "description": "Annule le dernier collage (efface + restaure le presse-papiers d'avant).",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "whisp_health", "description": "Rapport santé exportable : daemon STT, Ollama, Claude, dernière dictée, config (zéro secret, présence uniquement).",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "whisp_set_config", "description": "Update app config. Whitelist sûre : popupPos, sttModel, theme, language, inputDevice, agent, agentContext, realtimePreview, autoPaste, autoStop. agentCommand/agentCwd = UI uniquement.",
+     "inputSchema": {"type": "object", "properties": {"popupPos": {"type": "string"}, "sttModel": {"type": "string"}, "theme": {"type": "string"}, "language": {"type": "string"}, "inputDevice": {"type": "string"}, "agent": {"type": "string"}, "agentContext": {"type": "boolean"}, "realtimePreview": {"type": "boolean"}, "autoPaste": {"type": "boolean"}, "autoStop": {"type": "boolean"}}}},
     {"name": "whisp_set_stt", "description": "Set a mode's transcription engine: stt local (offline) or cloud_fish_audio (Fish cloud, fast). Persists as custom mode.",
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}, "stt": {"type": "string"}}, "required": ["id", "stt"]}},
     {"name": "whisp_chat", "description": "Chat via le provider configuré (claude = abonnement OAuth + Style, défaut). Style appliqué côté backend.",
@@ -165,9 +174,12 @@ def handle(req: dict):
             "whisp_get_config": ({"cmd": "get_config"}, None),
             # Agent retiré de la whitelist MCP : agentCommand/agentCwd = exécution
             # de commande arbitraire via prompt injection. UI uniquement.
-            "whisp_set_config": ({"cmd": "set_config", **{k: v for k, v in args.items() if k in ("popupPos", "sttModel", "theme", "language", "inputDevice", "agent", "agentContext", "realtimePreview", "chatProvider", "chatModel", "claudeStyle")}}, None),
+            "whisp_set_config": ({"cmd": "set_config", **{k: v for k, v in args.items() if k in ("popupPos", "sttModel", "theme", "language", "inputDevice", "agent", "agentContext", "realtimePreview", "autoPaste", "autoStop")}}, None),
             "whisp_set_stt": ({"cmd": "set_stt", "id": args.get("id", ""), "stt": args.get("stt", "")}, None),
             "whisp_history": ({"cmd": "history", "limit": args.get("limit", 5)}, None),
+            "whisp_repaste": ({"cmd": "repaste", "id": args.get("id", "")}, None),
+            "whisp_undo_paste": ({"cmd": "undo_paste"}, None),
+            "whisp_health": ({"cmd": "health"}, None),
             "whisp_chat": ({"cmd": "chat", "provider": args.get("provider", "claude") or "claude",
                             "messages": [{"role": "user", "content": args.get("message", "")}]}, None),
         }
