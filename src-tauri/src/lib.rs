@@ -2406,7 +2406,7 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
             }
         }
         // Annule le dernier collage (efface + restaure le presse-papiers).
-        "undo_paste" => match undo_paste_inner(&app) {
+        "undo_paste" => match undo_paste_inner(app) {
             Ok(chars) => ok(serde_json::json!({ "undone_chars": chars })),
             Err(e) => fail(e),
         },
