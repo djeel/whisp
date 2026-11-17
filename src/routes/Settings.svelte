@@ -19,6 +19,10 @@
   useConfigFlushOnDestroy();
   const store = new SettingsStore();
   let tab = $state<TabId>("home");
+  // iOS has no global shortcuts (sandbox) and updates via the App Store —
+  // hide both desktop-only sections there (macOS keeps them).
+  const isIOS =
+    typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
 
   onMount(() => {
     const raw = (() => {
@@ -90,8 +94,8 @@
         <p class="card-hint">Comportement, démarrage et capture.</p>
       </section>
       <GeneralSection {store} />
-      <div id="cfg-shortcuts"><ShortcutsSection /></div>
-      <UpdatesSection />
+      {#if !isIOS}<div id="cfg-shortcuts"><ShortcutsSection /></div>{/if}
+      {#if !isIOS}<UpdatesSection />{/if}
     {:else if tab === "apparence"}
       <section class="panel page-head">
         <h1>Apparence</h1>

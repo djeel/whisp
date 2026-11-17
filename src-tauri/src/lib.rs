@@ -13,6 +13,7 @@ mod autostart;
 mod caelestia;
 mod config;
 mod history;
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 mod hotkeys;
 mod llm;
 mod modes;
@@ -1987,6 +1988,10 @@ fn on_tray_event(app: &tauri::AppHandle, id: &str) {
     }
 }
 
+/// Desktop only: registers the global-shortcut plugin + user binds.
+/// Mobile has no OS-level shortcuts (sandbox) — the plugin is not even
+/// a dependency there (see Cargo.toml target-gated deps).
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 fn register_hotkeys(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::ShortcutState;
 
@@ -2412,7 +2417,6 @@ fn handle_socket_cmd(app: &tauri::AppHandle, line: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::new())
         .manage(agent_hook::PendingApprovals::default())
         .setup(|app| {
@@ -2424,7 +2428,14 @@ pub fn run() {
                 let _ = app;
                 return Ok(());
             }
-            register_hotkeys(app.handle());
+            // Desktop-only plugins (not compiled on mobile, see Cargo.toml).
+            #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+            {
+                let _ = app
+                    .handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build());
+                register_hotkeys(app.handle());
+            }
             if build_tray(app.handle()).is_err() {
                 // Best effort: tray is convenience, recorder works without it.
             }
@@ -2492,11 +2503,18 @@ pub fn run() {
             test_ollama,
             get_autostart,
             set_autostart,
+            // Global-shortcut commands need the desktop-only plugin.
+            #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
             shortcuts::list_shortcuts,
+            #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
             shortcuts::list_hotkeys,
+            #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
             shortcuts::set_hotkey,
+            #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
             shortcuts::pause_hotkeys,
+            #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
             shortcuts::resume_hotkeys,
+            #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
             shortcuts::reset_hotkeys,
             shortcuts::reload_hyprland,
             appearance::set_popup_size,

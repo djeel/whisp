@@ -28,6 +28,8 @@ pub struct ShortcutRow {
 }
 
 /// Live inventory for the settings UI (pretty French labels).
+/// Desktop only: global shortcuts need the desktop-only plugin.
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 pub fn all_shortcut_rows() -> Vec<ShortcutRow> {
     let (toggle, ptt, cycle) = crate::hotkeys::current();
     vec![
@@ -67,6 +69,8 @@ pub fn all_shortcut_rows() -> Vec<ShortcutRow> {
 }
 
 /// Legacy inventory (raw `ShortcutInfo`) for the socket MCP contract.
+/// Desktop only (same plugin dependency as above).
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 pub fn all_shortcuts() -> Vec<ShortcutInfo> {
     all_shortcut_rows()
         .into_iter()
@@ -102,12 +106,14 @@ fn reload_hyprland_inner() -> Result<String, String> {
 // ---------------------------------------------------------------------------
 
 /// List all whisp shortcuts for the settings UI.
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 #[tauri::command]
 pub fn list_shortcuts() -> Vec<ShortcutInfo> {
     all_shortcuts()
 }
 
 /// Live inventory with raw strings + editable flags (settings UI).
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 #[tauri::command]
 pub fn list_hotkeys() -> Vec<ShortcutRow> {
     all_shortcut_rows()
@@ -116,6 +122,7 @@ pub fn list_hotkeys() -> Vec<ShortcutRow> {
 /// Change one global shortcut (`toggle` | `push-to-talk` | `cycle-mode`).
 /// Valide le format, persiste, désenregistre l'ancien + enregistre le
 /// nouveau sans redémarrage. Erreur = rien n'a changé (ancien toujours actif).
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 #[tauri::command]
 pub fn set_hotkey(app: tauri::AppHandle, id: String, keys: String) -> Result<String, String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -163,6 +170,7 @@ pub fn set_hotkey(app: tauri::AppHandle, id: String, keys: String) -> Result<Str
 /// Suspend tous les raccourcis (pendant la capture clavier : évite que
 /// l'ancien binding se déclenche quand on appuie Alt+Espace pour le réassigner).
 /// Ne touche pas la config : `resume_hotkeys` restaure depuis la config.
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 #[tauri::command]
 pub fn pause_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
     crate::hotkeys::unregister_all(&app)?;
@@ -170,6 +178,7 @@ pub fn pause_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 /// Réenregistre les raccourcis depuis la config (après capture/annulation).
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 #[tauri::command]
 pub fn resume_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
     crate::hotkeys::register_all(&app)?;
@@ -178,6 +187,7 @@ pub fn resume_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
 
 /// Reset aux défauts : désenregistre tout, efface la config, réenregistre
 /// les défauts. Débloque l'utilisateur coincé sur un binding qui ne marche pas.
+#[cfg(any(target_os = "macos", windows, target_os = "linux"))]
 #[tauri::command]
 pub fn reset_hotkeys(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;

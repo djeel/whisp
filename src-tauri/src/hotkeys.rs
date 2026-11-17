@@ -1,4 +1,5 @@
 //! Global hotkeys for whisp (Tauri `global-shortcut` plugin).
+#![cfg(any(target_os = "macos", windows, target_os = "linux"))]
 //!
 //! Defaults (overridable in Settings → Raccourcis, persisted in config):
 //! - Toggle recording: `alt+Space`

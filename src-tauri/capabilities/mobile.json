@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Capability for whisp windows (mobile: no updater, no global shortcuts — sandbox)",
+  "platforms": ["iOS", "android"],
+  "windows": [
+    "main",
+    "recorder"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-inner-size",
+    "core:window:allow-outer-position"
+  ]
+}
