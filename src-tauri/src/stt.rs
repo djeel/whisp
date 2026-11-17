@@ -87,8 +87,9 @@ fn fw_python() -> String {
             return p;
         }
     }
-    if let Some(home) = dirs::home_dir() {
-        let venv = home.join(".local/share/whisp/fw/bin/python");
+    // `dirs::data_dir()` = `~/.local/share` on Linux, `~/Library/Application
+    // Support` on macOS.
+    if let Some(venv) = dirs::data_dir().map(|d| d.join("whisp/fw/bin/python")) {
         if venv.exists() {
             return venv.to_string_lossy().into_owned();
         }
@@ -468,6 +469,10 @@ fn fish_key_file() -> std::path::PathBuf {
         .join("whisp/fish_audio.key")
 }
 
+/// Linux-only workaround: the keyring crate is broken there, so Fish key
+/// lookup falls back to the libsecret CLI (when present).
+/// macOS/iOS use the keyring crate natively (Keychain) — no CLI fallback.
+#[cfg(target_os = "linux")]
 fn secret_tool_get() -> Option<String> {
     // Contourne le crate keyring défectueux via le CLI libsecret (si présent).
     // `timeout 3` évite de figer stop/transcribe si le daemon secret est pendu.
@@ -492,6 +497,7 @@ fn secret_tool_get() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+#[cfg(target_os = "linux")]
 fn secret_tool_set(key: &str) -> bool {
     use std::io::Write;
     // secret-tool lit le secret sur stdin.
@@ -532,7 +538,9 @@ pub fn fish_api_key() -> Option<String> {
     {
         return Some(k);
     }
-    // 2. Secret Service via CLI (contourne le crate défectueux, chiffré au repos).
+    // 2. Secret Service via CLI, Linux only (keyring crate is broken there;
+    // macOS/iOS use the native Keychain through the keyring crate).
+    #[cfg(target_os = "linux")]
     if let Some(k) = secret_tool_get() {
         return Some(k);
     }
@@ -558,7 +566,8 @@ pub fn set_fish_api_key(key: &str) -> Result<(), String> {
         }
         return Ok(());
     }
-    // 2. Secret Service CLI (chiffré, préféré au fichier).
+    // 2. Secret Service CLI, Linux only (encrypted, preferred over file).
+    #[cfg(target_os = "linux")]
     if secret_tool_set(key) && secret_tool_get().is_some() {
         // Nettoie l'ancien fichier 600 si le secret est désormais en lieu sûr.
         let _ = std::fs::remove_file(fish_key_file());
@@ -721,6 +730,13 @@ impl Stt for SelectedStt {
 }
 
 pub fn select_stt(kind: SttKind) -> SelectedStt {
+    // iOS cannot spawn the Python faster-whisper sidecar (no subprocesses
+    // in the sandbox): cloud-only. Without a Fish key the cloud engine
+    // reports the missing key clearly at transcribe time.
+    #[cfg(target_os = "ios")]
+    {
+        return SelectedStt::Cloud(CloudFishAudio::default());
+    }
     match kind {
         SttKind::Local => SelectedStt::Local(LocalFasterWhisper::default()),
         SttKind::CloudFishAudio => {

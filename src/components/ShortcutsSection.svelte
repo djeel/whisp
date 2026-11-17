@@ -26,6 +26,10 @@
   let captureKeys = $state("");
   let saving = $state<string | null>(null);
   let resetting = $state(false);
+  // Hyprland reload is Linux-only (global shortcuts live in the Tauri
+  // plugin on macOS, in-app buttons on iOS).
+  const isLinux =
+    typeof navigator !== "undefined" && !/Mac|iPhone|iPad|Win/.test(navigator.userAgent);
 
   function refresh(): void {
     invoke<HotkeyRow[]>("list_hotkeys")
@@ -172,9 +176,11 @@
     {/each}
   </ul>
    <div class="row">
+    {#if isLinux}
     <Button onclick={reload} disabled={reloading} busy={reloading}>
       {reloading ? "Rechargement…" : "Recharger Hyprland"}
     </Button>
+    {/if}
     <Button onclick={resetDefaults} disabled={resetting || saving !== null} busy={resetting} title="Restaure Alt+Espace, Ctrl+Alt+Espace, Ctrl+Alt+M">
       {resetting ? "Réinitialisation…" : "Réinitialiser"}
     </Button>

@@ -70,9 +70,9 @@ pub fn agents_socket_path() -> PathBuf {
     {
         return dir.join("whisp-agents.sock");
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     let uid = unsafe { libc::getuid() };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(unix))]
     let uid = 1000u32;
     PathBuf::from(format!("/tmp/whisp-agents-{uid}.sock"))
 }

@@ -1,4 +1,4 @@
-# whisp — dictée vocale locale (Superwhisper-like, Hyprland/Wayland)
+# whisp — dictée vocale locale (Superwhisper-like, Hyprland/Wayland, macOS, iOS cloud-only)
 
 Alt+Espace → parle → ton texte se colle où est ton curseur.
 

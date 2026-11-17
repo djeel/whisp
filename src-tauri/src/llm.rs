@@ -704,6 +704,22 @@ impl Llm for SelectedLlm {
 /// back to local Ollama (or passthrough when Ollama is unreachable — the
 /// refine call itself reports that error, never a surprise cloud call).
 pub fn select_llm(kind: LlmKind) -> SelectedLlm {
+    // iOS has no localhost Ollama (no local processes): cloud-only.
+    // First configured provider wins; otherwise Anthropic, whose refine
+    // call reports the missing key explicitly.
+    #[cfg(target_os = "ios")]
+    {
+        if keyring_get("anthropic").is_some() {
+            return SelectedLlm::Anthropic(CloudAnthropic::default());
+        }
+        if keyring_get("openai").is_some() {
+            return SelectedLlm::OpenAi(CloudOpenAi::default());
+        }
+        if claude_oauth_token().is_some() {
+            return SelectedLlm::Claude(ClaudeSubscription::default());
+        }
+        return SelectedLlm::Anthropic(CloudAnthropic::default());
+    }
     match kind {
         LlmKind::None => SelectedLlm::Passthrough,
         LlmKind::OllamaLocal => SelectedLlm::Ollama(OllamaLocal::default()),

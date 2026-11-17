@@ -1,6 +1,42 @@
 # Installation
 
-## Recommandé : Flatpak (Flathub ou release GitHub)
+## macOS (Apple Silicon, dmg signé par CI)
+
+```sh
+# Depuis la release GitHub :
+open whisp_*_aarch64.dmg   # glisser whisp dans /Applications
+```
+
+Au premier lancement : clic droit → Ouvrir (binaire non notarié,
+signature ad-hoc). Requis :
+- **Micro** : autoriser dans Réglages → Confidentialité → Microphone.
+- **Collage auto** : `pbcopy`/`pbpaste` natifs + frappe `Cmd+V` via
+  osascript (autoriser l'automatisation si demandé) ; sans permission
+  d'accessibilité le texte reste dans le presse-papiers.
+- **Raffinage LLM** : Ollama local (`ollama pull whisp-nanbeige`) ou
+  cloud (clé Anthropic/OpenAI, stockée dans le Keychain macOS).
+- **STT** : faster-whisper local (`pip install faster-whisper`,
+  venv `~/Library/Application Support/whisp/fw`) ou Fish cloud.
+- **Démarrage auto** : Réglages → Lancer au démarrage (LaunchAgent
+  `~/Library/LaunchAgents/com.whisp.app.plist`).
+
+## iOS (cloud-only, via Xcode sur le Mac du propriétaire)
+
+Pas de faster-whisper ni d'Ollama locaux (sandbox iOS : aucun
+sous-processus) — la dictée exige les deux clés cloud :
+- STT : clé Fish Audio (console fish.audio).
+- Raffinage : clé Anthropic ou OpenAI.
+
+```sh
+bun install --frozen-lockfile
+bunx tauri ios init        # une fois : génère le projet Xcode
+bunx tauri ios build       # depuis le Mac signé (profil owner)
+```
+
+Mode agent non applicable (pas de tmux/terminal), historique et
+raffinage identiques au desktop.
+
+## Linux — recommandé : Flatpak (Flathub ou release GitHub)
 
 ```sh
 # Depuis la release GitHub (v0.1.2+) :

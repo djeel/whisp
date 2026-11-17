@@ -16,6 +16,7 @@ mod history;
 mod hotkeys;
 mod llm;
 mod modes;
+mod os_paste;
 mod shortcuts;
 mod socket;
 mod state;
@@ -523,6 +524,8 @@ fn have_bin(name: &str) -> bool {
             for bin in [
                 "tmux", "hyprctl", "grim", "wl-copy", "wtype", "ydotool", "xdotool", "foot",
                 "kitty", "xterm", "pgrep", "pkill", "bash",
+                // macOS counterparts (absent on Linux: cache miss, no cost).
+                "pbcopy", "pbpaste", "osascript", "afplay", "open", "launchctl",
             ] {
                 m.insert(
                     bin.to_string(),
@@ -574,9 +577,6 @@ fn tmux_session_active() -> bool {
 /// shell), so no long timeout is needed anywhere here.
 const TMUX_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Délai max pour un collage/annulation de collage (wtype/ydotool/xdotool).
-const PASTE_TIMEOUT: Duration = Duration::from_secs(5);
-
 /// True when the tmux *server* answers for the session, not just that the
 /// session name exists. `has-session` can succeed while the server is
 /// wedged; `display-message` forces a round-trip under a short deadline.
@@ -625,26 +625,51 @@ fn agent_session_active() -> bool {
 }
 
 /// Bring the existing agent terminal forward (Hyprland) instead of opening
-/// a second one. Best effort.
+/// a second one. Best effort. Linux only: other platforms manage windows
+/// themselves when the terminal opens.
 fn focus_agent_term() {
-    // Best effort : un hyprctl coincé ne doit jamais figer l'UI.
-    let _ = run_timed(
-        &[
-            "hyprctl",
-            "dispatch",
-            "focuswindow",
-            &format!("title:{AGENT_SESSION}"),
-        ],
-        Duration::from_secs(3),
-    );
+    #[cfg(target_os = "linux")]
+    {
+        // Best effort : un hyprctl coincé ne doit jamais figer l'UI.
+        let _ = run_timed(
+            &[
+                "hyprctl",
+                "dispatch",
+                "focuswindow",
+                &format!("title:{AGENT_SESSION}"),
+            ],
+            Duration::from_secs(3),
+        );
+    }
 }
 
 /// Open the visible agent terminal running `shell_cmd` (a `sh -c` body).
-/// foot first, then kitty, then xterm. Silent when no terminal exists.
-/// foot: `--window-size-chars` + `pad=2x2` override (le pad 25x25 global +
-/// `resize-by-cells` coupait le bas du prompt sous le padding).
+/// foot first, then kitty, then xterm (Linux). On macOS Terminal.app runs
+/// `.command` files on `open` — no automation permission needed.
+/// Silent when no terminal exists.
 fn spawn_agent_term(shell_cmd: &str) {
     let null = || std::process::Stdio::null();
+    #[cfg(target_os = "macos")]
+    {
+        // Best effort: a stale .command file never blocks dictation.
+        let path = std::env::temp_dir().join(format!("whisp-agent-{AGENT_SESSION}.command"));
+        let body = format!("#!/bin/sh\n{shell_cmd}\n");
+        if std::fs::write(&path, body).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+            }
+            let _ = std::process::Command::new("open")
+                .arg(&path)
+                .stdin(null())
+                .stdout(null())
+                .stderr(null())
+                .spawn();
+            return;
+        }
+    }
+    // foot: `--window-size-chars` + `pad=2x2` override.
     if have_bin("foot") {
         let _ = std::process::Command::new("foot")
             .args([
@@ -965,6 +990,15 @@ pub(crate) fn run_timed_out(argv: &[&str], timeout: Duration) -> Result<String, 
 /// failed twice (retry once) or no agent binary/terminal is available —
 /// history keeps the request either way; user speech is never logged.
 fn launch_agent(request: &str) -> Result<(bool, Option<String>), String> {
+    // iOS sandbox: no subprocesses, no tmux, no visible terminal.
+    #[cfg(target_os = "ios")]
+    {
+        let _ = request;
+        return Err(
+            "Agent mode needs a local terminal (tmux), unavailable on iOS — use a dictation mode"
+                .to_string(),
+        );
+    }
     let request = request.trim();
     if request.is_empty() {
         return Ok((false, None));
@@ -1057,24 +1091,9 @@ fn launch_agent(request: &str) -> Result<(bool, Option<String>), String> {
 /// Clipboard + auto-paste into the previously focused app.
 /// Best effort: failures keep text in history (and usually clipboard).
 /// Clipboard only (no auto-paste). Used when `auto_paste` is off.
+/// OS backends live in [`os_paste`] (wl-copy on Linux, pbcopy on macOS).
 fn copy_to_clipboard(text: &str) -> bool {
-    if text.trim().is_empty() {
-        return false;
-    }
-    std::process::Command::new("wl-copy")
-        .arg("--type")
-        .arg("text/plain")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            if let Some(stdin) = child.stdin.as_mut() {
-                stdin.write_all(text.as_bytes())?;
-            }
-            child.wait()?;
-            Ok::<_, std::io::Error>(())
-        })
-        .is_ok()
+    os_paste::copy_to_clipboard(text)
 }
 
 fn paste_text(app: &tauri::AppHandle, text: &str) {
@@ -1082,37 +1101,19 @@ fn paste_text(app: &tauri::AppHandle, text: &str) {
         return;
     }
     // Presse-papiers d'avant, capturé AVANT écrasement (restauré par undo).
-    let before = match run_timed_out(
-        &["wl-paste", "--type", "text/plain", "--no-newline"],
-        Duration::from_secs(2),
-    ) {
-        Ok(s) if !s.is_empty() => Some(s),
-        _ => None,
-    };
+    let before = os_paste::read_clipboard_before();
     let wl_ok = copy_to_clipboard(text);
     // Le hide a déjà rendu le focus à l'app cible ; laisser le compositor
     // finir avant d'envoyer Ctrl+V (sinon la frappe part dans le vide).
     std::thread::sleep(std::time::Duration::from_millis(350));
-    // 2. Paste via Ctrl+V (unicode-safe : les accents passent par le
+    // 2. Paste via Ctrl/Cmd+V (unicode-safe : les accents passent par le
     // presse-papiers, contrairement à `ydotool type` qui les massacre).
-    // `ydotool key ctrl+v` ne marche PAS (keycodes bruts exigés : 29 = Ctrl,
-    // 47 = V) ; Wayland natif (wtype, virtual-keyboard) en premier.
-    let run_quiet = |bin: &str, args: &[&str]| {
-        std::process::Command::new(bin)
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    };
-    let pasted = run_quiet("wtype", &["-M", "ctrl", "-k", "v", "-m", "ctrl"])
-        || run_quiet("ydotool", &["key", "29:1", "47:1", "47:0", "29:0"])
-        || run_quiet("xdotool", &["key", "ctrl+v"]);
+    // Backend OS : [`os_paste`] (wtype/ydotool/xdotool sur Linux,
+    // osascript Cmd+V sur macOS).
+    let pasted = os_paste::paste_keystroke();
     if !pasted {
         // Plus de collage silencieux : même presse-papiers OK, le toggle est ON.
-        eprintln!("[whisp] paste failed (wtype/ydotool/xdotool): clipboard_ok={wl_ok}");
+        eprintln!("[whisp] paste failed (os_paste::paste_keystroke): clipboard_ok={wl_ok}");
     }
     // Mémorise le collage pour `undo_paste` (+ presse-papiers d'avant).
     let pasted_chars = text.chars().count();
@@ -1132,39 +1133,14 @@ fn paste_text(app: &tauri::AppHandle, text: &str) {
 // ---------------------------------------------------------------------------
 
 /// Envoie `n` Retours arrière (plafonné) pour effacer le dernier collage.
+/// Backend OS : [`os_paste`] (wtype/ydotool/xdotool sur Linux,
+/// osascript sur macOS).
 fn press_backspace(n: usize) -> Result<(), String> {
-    let n = n.min(5000);
-    if n == 0 {
-        return Ok(());
+    if os_paste::press_backspace(n) {
+        Ok(())
+    } else {
+        Err("keystroke injection unavailable".to_string())
     }
-    // wtype accepte une séquence de `-k` en un seul appel.
-    let mut wtype_argv: Vec<String> = Vec::with_capacity(n * 2);
-    for _ in 0..n {
-        wtype_argv.push("-k".to_string());
-        wtype_argv.push("BackSpace".to_string());
-    }
-    let mut wtype_refs: Vec<&str> = vec!["wtype"];
-    wtype_refs.extend(wtype_argv.iter().map(|s| s.as_str()));
-    if run_timed(&wtype_refs, PASTE_TIMEOUT).is_ok() {
-        return Ok(());
-    }
-    let mut y_argv: Vec<String> = Vec::with_capacity(n * 2);
-    for _ in 0..n {
-        y_argv.push("14:1".to_string());
-        y_argv.push("14:0".to_string());
-    }
-    let mut y_refs: Vec<&str> = vec!["ydotool", "key"];
-    y_refs.extend(y_argv.iter().map(|s| s.as_str()));
-    if run_timed(&y_refs, PASTE_TIMEOUT).is_ok() {
-        return Ok(());
-    }
-    let mut x_argv: Vec<&str> = Vec::with_capacity(n + 2);
-    x_argv.push("xdotool");
-    x_argv.push("key");
-    for _ in 0..n {
-        x_argv.push("BackSpace");
-    }
-    run_timed(&x_argv, PASTE_TIMEOUT)
 }
 
 /// Cœur de `undo_paste` (commande Tauri + socket) : efface le dernier
@@ -1727,8 +1703,8 @@ fn health_report(app: tauri::AppHandle) -> serde_json::Value {
         Ok(n) => (true, n),
         Err(_) => (false, 0),
     };
-    let venv_py = dirs::home_dir()
-        .map(|h| h.join(".local/share/whisp/fw/bin/python").exists())
+    let venv_py = dirs::data_dir()
+        .map(|d| d.join("whisp/fw/bin/python").exists())
         .unwrap_or(false);
     let entries = history::stats().map(|s| s.total_entries).unwrap_or(0);
     serde_json::json!({
@@ -1738,6 +1714,11 @@ fn health_report(app: tauri::AppHandle) -> serde_json::Value {
             "python3": have_bin("python3"),
             "venv_python": venv_py,
             "fish_configured": stt::fish_api_key().is_some(),
+        },
+        "paste": {
+            "supported": os_paste::paste_supported(),
+            "wl_copy": have_bin("wl-copy"),
+            "pbcopy": have_bin("pbcopy"),
         },
         "ollama": { "url": ollama_base, "reachable": ollama_ok, "models": ollama_models },
         "claude": {
@@ -1783,7 +1764,8 @@ async fn set_autostart(enabled: bool) -> Result<bool, String> {
     if autostart::is_enabled() == enabled {
         return Ok(enabled);
     }
-    // `systemctl enable/disable` peut attendre le bus : jamais sur GTK.
+    // `systemctl enable/disable` (Linux) / `launchctl bootstrap` (macOS) can
+    // wait on the bus: never on the GTK thread.
     tauri::async_runtime::spawn_blocking(move || autostart::set_enabled(enabled))
         .await
         .map_err(|e| format!("autostart worker: {e}"))?
@@ -2434,6 +2416,14 @@ pub fn run() {
         .manage(AppState::new())
         .manage(agent_hook::PendingApprovals::default())
         .setup(|app| {
+            // iOS: no tray, no global shortcuts, no local sockets/relay —
+            // the app is driven from its own windows (dictation UI).
+            // Local engine warm-up is desktop-only (cloud-only on iOS).
+            #[cfg(target_os = "ios")]
+            {
+                let _ = app;
+                return Ok(());
+            }
             register_hotkeys(app.handle());
             if build_tray(app.handle()).is_err() {
                 // Best effort: tray is convenience, recorder works without it.
@@ -2445,6 +2435,8 @@ pub fn run() {
             // Warmup au démarrage : STT daemon + LLM déjà chargés avant la
             // première dictée (mesuré : reload Ollama ~7 s à froid). Best effort,
             // en arrière-plan, jamais bloquant.
+            // Desktop only: iOS is cloud-only (no local daemon/Ollama).
+            #[cfg(not(target_os = "ios"))]
             std::thread::Builder::new()
                 .name("whisp-warmup".to_string())
                 .spawn(|| {

@@ -81,7 +81,12 @@ pub fn all_shortcuts() -> Vec<ShortcutInfo> {
 
 /// Reload the Hyprland config so edited binds apply now.
 /// `hyprctl reload` exit code is surfaced; missing hyprctl = clear error.
+/// Linux/Hyprland only: other platforms get a clear not-applicable error.
 fn reload_hyprland_inner() -> Result<String, String> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return Err("Hyprland reload is Linux-only (this platform uses the Tauri global shortcut)".to_string());
+    }
     // Deadline 15 s : hyprctl coincé (service sans WAYLAND_DISPLAY) = erreur.
     match crate::run_timed_out(&["hyprctl", "reload"], std::time::Duration::from_secs(15)) {
         Ok(_) => Ok("Configuration Hyprland rechargée.".to_string()),

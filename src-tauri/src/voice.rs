@@ -68,8 +68,11 @@ fn play_mp3(bytes: &[u8]) -> Result<(), String> {
         &["mpv", "--no-video", "--really-quiet"],
         &["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],
         &["mpg123", "-q"],
+        // macOS built-in (absent on Linux: skipped by have_bin).
+        &["afplay"],
     ];
-    let mut last_err = "no audio player found (install mpv, ffplay or mpg123)".to_string();
+    let mut last_err =
+        "no audio player found (install mpv, ffplay or mpg123)".to_string();
     for argv in attempts {
         if have_bin(argv[0]) {
             let mut args: Vec<&str> = argv[1..].to_vec();

@@ -1,5 +1,12 @@
  # Changelog
 
+## Unreleased — Portage Apple (macOS + iOS cloud-only)
+
+### Nouveau
+- macOS Apple Silicon : presse-papiers/collage natifs (`pbcopy`/`pbpaste` + `Cmd+V` osascript), autostart LaunchAgent, TTS `afplay` en fallback, venv faster-whisper sous `~/Library/Application Support`, CI `macos-14` (check + tests + dmg unsigned) et release `dmg` aarch64.
+- iOS cloud-only (sandbox : aucun sous-processus) : `select_stt`/`select_llm` forcent Fish + LLM cloud, pas de tray/raccourcis/sockets/daemon, mode agent désactivé avec message clair ; build via `tauri ios` sur Mac signé (voir INSTALL.md).
+- Abstraction `os_paste` : pipeline Linux `wl-copy`/`wtype` inchangé, `secret-tool` Linux-only (Keychain natif via crate keyring sur macOS), boutons Hyprland masqués hors Linux.
+
 ## v0.1.5 — VAD, re-paste+undo, Santé, historique chiffré
 
 ### Nouveau

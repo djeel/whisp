@@ -6,10 +6,10 @@ use std::path::PathBuf;
 
 /// Real uid, not `$UID` env (env can be unset/spoofed in services).
 pub fn current_uid() -> u32 {
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     // SAFETY: getuid is always-success, no side effects.
     let uid = unsafe { libc::getuid() };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(unix))]
     let uid = 1000u32;
     uid
 }
